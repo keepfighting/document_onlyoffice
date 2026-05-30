@@ -15,6 +15,7 @@ vi.mock('../../lib/file-types', () => ({ c_oAscFileType2: { 65: 'XLSX', 43: 'DOC
 vi.mock('../../lib/document-utils', () => ({ getMimeTypeFromExtension: vi.fn().mockReturnValue('image/png') }));
 
 import {
+  createEditorInstance,
   getNormalizedFile,
   getReadonlyMode,
   getSavedFileMimeType,
@@ -196,6 +197,97 @@ describe('onlyoffice-editor', () => {
     it('preserves the original file name', () => {
       const file = new File(['data'], 'my-document.csv', { type: '' });
       expect(getNormalizedFile(file).name).toBe('my-document.csv');
+    });
+  });
+
+  describe('createEditorInstance', () => {
+    let DocEditorMock: ReturnType<typeof vi.fn>;
+
+    const baseConfig = {
+      fileName: 'report.xlsx',
+      fileType: 'xlsx',
+      binData: new ArrayBuffer(0),
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      const container = document.createElement('div');
+      container.id = 'iframe';
+      document.body.appendChild(container);
+      // Vitest 4.x requires a constructor-compatible function (not mockReturnValue) for `new`
+      DocEditorMock = vi.fn(function (this: any) {
+        this.destroyEditor = vi.fn();
+        this.sendCommand = vi.fn();
+      });
+      (window as any).DocsAPI = { DocEditor: DocEditorMock };
+    });
+
+    afterEach(async () => {
+      await vi.runAllTimersAsync();
+      document.getElementById('iframe')?.remove();
+      delete (window as any).DocsAPI;
+      delete (window as any).editor;
+      vi.useRealTimers();
+    });
+
+    async function run(config: Parameters<typeof createEditorInstance>[0]) {
+      const promise = createEditorInstance(config);
+      await vi.runAllTimersAsync();
+      await promise;
+      return DocEditorMock.mock.calls[0][1] as any;
+    }
+
+    it('sets editorConfig.mode to "view" when readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: true });
+      expect(config.editorConfig.mode).toBe('view');
+    });
+
+    it('sets editorConfig.mode to "edit" when not readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: false });
+      expect(config.editorConfig.mode).toBe('edit');
+    });
+
+    it('adds compact customization options when readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: true });
+      expect(config.editorConfig.customization.compactHeader).toBe(true);
+      expect(config.editorConfig.customization.compactToolbar).toBe(true);
+      expect(config.editorConfig.customization.toolbarHideFileName).toBe(true);
+    });
+
+    it('omits compact customization options when not readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: false });
+      expect(config.editorConfig.customization.compactHeader).toBeUndefined();
+      expect(config.editorConfig.customization.compactToolbar).toBeUndefined();
+      expect(config.editorConfig.customization.toolbarHideFileName).toBeUndefined();
+    });
+
+    it('sets permissions.edit and permissions.download to false when readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: true });
+      expect(config.document.permissions.edit).toBe(false);
+      expect(config.document.permissions.download).toBe(false);
+    });
+
+    it('sets permissions.edit and permissions.download to true when not readonly', async () => {
+      const config = await run({ ...baseConfig, readonly: false });
+      expect(config.document.permissions.edit).toBe(true);
+      expect(config.document.permissions.download).toBe(true);
+    });
+
+    it('defaults readonly to false when omitted', async () => {
+      const config = await run(baseConfig);
+      expect(config.editorConfig.mode).toBe('edit');
+      expect(config.editorConfig.customization.compactHeader).toBeUndefined();
+    });
+
+    it('sets isReadonlyMode to true after creating a readonly instance', async () => {
+      await run({ ...baseConfig, readonly: true });
+      expect(getReadonlyMode()).toBe(true);
+    });
+
+    it('passes fileName and fileType into the document config', async () => {
+      const config = await run({ ...baseConfig, fileName: 'data.csv', fileType: 'csv' });
+      expect(config.document.title).toBe('data.csv');
+      expect(config.document.fileType).toBe('csv');
     });
   });
 
