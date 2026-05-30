@@ -1,4 +1,3 @@
-import { getAllQueryString } from 'ranuts/utils';
 import { initEmbedApi } from './lib/embed-api';
 import { initEvents, setEventUICallbacks } from './lib/events';
 import { onCreateNew, openDocumentFromUrl, setUICallbacks } from './lib/document';
@@ -59,9 +58,11 @@ createControlPanel();
 //   ?file=https://example.com/doc.docx
 //   ?src=https://example.com/doc.docx
 //   ?file=doc1.docx&src=doc2.xlsx (will use file: doc1.docx)
-const { file, src, readonly } = getAllQueryString();
-const documentUrl = file || src;
-const readonlyMode = readonly === 'true' || readonly === '1';
+// Use URLSearchParams directly to correctly handle URLs containing '=' in values
+// (e.g. signed URLs like ?sign=abc=:0 would be truncated by naive split-based parsers)
+const _q = new URLSearchParams(window.location.search);
+const documentUrl = _q.get('file') || _q.get('src');
+const readonlyMode = _q.get('readonly') === 'true' || _q.get('readonly') === '1';
 if (documentUrl) {
   // Decode URL if it's encoded
   try {
