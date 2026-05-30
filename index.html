@@ -11,6 +11,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <title>Document Editor</title>
     <script src="web-apps/apps/api/documents/api.js"></script>
+    <script>
+      // Safari < 16.4 does not support requestIdleCallback
+      if (!window.requestIdleCallback) {
+        window.requestIdleCallback = function (cb) {
+          var start = Date.now();
+          return setTimeout(function () {
+            cb({ didTimeout: false, timeRemaining: function () { return Math.max(0, 50 - (Date.now() - start)); } });
+          }, 1);
+        };
+        window.cancelIdleCallback = function (id) { clearTimeout(id); };
+      }
+    </script>
   </head>
 
   <body>
