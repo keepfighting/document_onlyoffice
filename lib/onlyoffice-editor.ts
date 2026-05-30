@@ -389,10 +389,16 @@ export function createEditorInstance(config: {
         },
         editorConfig: {
           lang: editorLang,
+          mode: readonly ? 'view' : 'edit',
           customization: {
             help: false,
             about: false,
             hideRightMenu: true,
+            ...(readonly && {
+              compactHeader: true,
+              compactToolbar: true,
+              toolbarHideFileName: true,
+            }),
             features: {
               spellcheck: {
                 change: false,

@@ -59,18 +59,17 @@ createControlPanel();
 //   ?file=https://example.com/doc.docx
 //   ?src=https://example.com/doc.docx
 //   ?file=doc1.docx&src=doc2.xlsx (will use file: doc1.docx)
-const { file, src } = getAllQueryString();
+const { file, src, readonly } = getAllQueryString();
 const documentUrl = file || src;
+const readonlyMode = readonly === 'true' || readonly === '1';
 if (documentUrl) {
   // Decode URL if it's encoded
   try {
     const decodedUrl = decodeURIComponent(documentUrl);
-    // Open document from URL
-    openDocumentFromUrl(decodedUrl);
+    openDocumentFromUrl(decodedUrl, undefined, { readonly: readonlyMode });
   } catch (error) {
-    // If decoding fails, try using original URL
     console.warn('Failed to decode URL, using original:', error);
-    openDocumentFromUrl(documentUrl);
+    openDocumentFromUrl(documentUrl, undefined, { readonly: readonlyMode });
   }
 }
 
