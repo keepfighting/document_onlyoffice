@@ -67,12 +67,12 @@ pnpm run dev
 
 ### URL parameters
 
-| Parameter  | Description                                  | Priority |
-| ---------- | -------------------------------------------- | -------- |
-| `src`      | Open document from URL (recommended)         | Low      |
-| `file`     | Open document from URL (legacy)              | High     |
-| `locale`   | Set interface language (`en`, `zh`)          | —        |
-| `readonly` | Open in read-only preview mode (`true`/`1`)  | —        |
+| Parameter  | Description                                 | Priority |
+| ---------- | ------------------------------------------- | -------- |
+| `src`      | Open document from URL (recommended)        | Low      |
+| `file`     | Open document from URL (legacy)             | High     |
+| `locale`   | Set interface language (`en`, `zh`)         | —        |
+| `readonly` | Open in read-only preview mode (`true`/`1`) | —        |
 
 When both `src` and `file` are present, `file` takes priority.
 
