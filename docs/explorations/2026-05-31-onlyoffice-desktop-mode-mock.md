@@ -2,7 +2,7 @@
 
 **日期：** 2026-05-31  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 接近成功 — 文档可加载，最后一步时序问题待解
+**状态：** 文档渲染工作（canvas 有内容），2 个 UI 问题待优化
 
 ---
 
@@ -40,233 +40,223 @@ index.html（检测到 AscDesktopEditor）
   → SetDocumentName(fileName)
   → GetInstallPlugins() → UpdateSystemPlugins()
   → LocalStartOpen()   ← 关键转折点
-  → [native app 提供文件内容]
-  → 文档加载 → preloader:hide → execCommand("editor:onready")
+  → [500ms 后] asc_openDocumentFromBytes(binary, AscDesktopEditor=null)
+  → BRj(data) — 原始二进制加载路径
+  → 字体加载 → 文档渲染
+  → preloader:hide → execCommand("editor:onready")
 ```
 
-Desktop 模式完全不依赖 socket.io，`code.js` 也不需要。
+Desktop 模式完全不依赖 socket.io。
 
 ---
 
-## 实施步骤与关键发现
+## Shc() 覆盖是最关键的发现
 
-### 1. 基础 Mock 注入
+这是整个机制的核心：
 
-在 Vite 插件里把 `<script>` 注入到所有编辑器 `index.html` 的 `<head>` 最前面：
-
-```typescript
-// vite.config.ts
-function onlyofficeDesktopMock(): Plugin {
-  const EDITOR_HTML = /\/web-apps\/apps\/(documenteditor|presentationeditor|spreadsheeteditor)\/main\/index\.html/;
-  return {
-    name: 'onlyoffice-desktop-mock',
-    configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url || !EDITOR_HTML.test(req.url)) return next();
-        const html = await fs.readFile(filePath, 'utf-8');
-        res.end(html.replace('<head>', `<head>\n${MOCK_SCRIPT}`));
-      });
-    },
-  };
-}
+```javascript
+// SDK 在 Desktop 模式下重写了 Shc()
+AscCommon.r3.prototype.BRj = AscCommon.r3.prototype.Shc;  // 保存原始版本
+AscCommon.r3.prototype.Shc = function(d) {
+  if (this.MOa() || !a.AscDesktopEditor) {
+    return this.BRj(d);  // 无 Desktop → 原始二进制加载路径
+  }
+  // Desktop 路径：忽略数据 d，只调 LocalStartOpen
+  a.AscDesktopEditor.LocalStartOpen();
+};
 ```
 
-### 2. api.js 两处必要补丁
+**因此**：直接调用 `asc_openDocumentFromBytes(data)` 时，因为 `AscDesktopEditor` 存在，`Shc` 会忽略 `data` 直接调 `LocalStartOpen`，形成递归（guard 拦截）。
 
-**补丁一：去掉版本哈希前缀**
+**解决方案**：临时清除 `AscDesktopEditor` 再调用：
 
-Desktop 版 `api.js` 里有 `const ver = '/9.3.0-{{HASH_POSTFIX}}'`，把它设为空字符串让路径回到自然位置：
+```javascript
+var savedDE = window.AscDesktopEditor;
+window.AscDesktopEditor = null;
+try { editor.asc_openDocumentFromBytes(copy); }
+finally { window.AscDesktopEditor = savedDE; }
+// → Shc 走 BRj(d) 原始路径，正确加载二进制
+```
+
+---
+
+## 完整工作机制
+
+### 初始化链路（每次文档打开）
+
+```
+1. 用户上传文件 → x2t 转换 → binary 存入 window.__pendingBinary（34370 字节）
+2. DocsAPI.DocEditor 创建（api.js 补丁：ver='', parentOrigin="file://"）
+3. AscDesktopEditor mock 触发：
+   - execCommand("webapps:entry") → 记录
+   - execCommand("webapps:features") → 记录
+   - CreateEditorApi(api) → 注册 asc_onCoAuthoringDisconnect no-op
+4. GetInstallPlugins → 返回 '[{"url":"","pluginsData":[]},{"url":"","pluginsData":[]}]'
+   （必须 2 个 group，SDK 强制访问 a[0].url 和 a[1].url）
+5. LocalStartOpen 触发（每个字体脚本加载都会触发，guard 确保只处理一次）
+6. 500ms 后：tryLoad() 调用：
+   a. 临时清除 window.AscDesktopEditor = null
+   b. editor.asc_openDocumentFromBytes(copy) → BRj(d) → server-mode 文档加载
+   c. 恢复 window.AscDesktopEditor
+7. BRj 启动 server-mode 文档加载，同时尝试 socket.io 连接
+8. socket.io GET /doc/{id}/c/?EIO=4&transport=polling → Vite 返回 404
+9. socket.io 重试（指数退避 1s→5s→...）约 60-120 秒后放弃
+10. asc_onCoAuthoringDisconnect 触发（Common.UI.warning 拦截抑制弹框）
+11. app.js Main controller 初始化（onLaunch）：
+    - 注册 opendocumentfrombinary 监听器
+    - 调用 Common.Gateway.appReady()
+12. title:button / editor:onready execCommand 触发
+13. 字体加载：ascdesktop://fonts/ XHR → prototype patch 重定向 → /fonts/*.ttf
+14. 21 个字体成功加载（70MB，含 Noto CJK 变字体）
+15. 文档在 canvas 渲染（1806×1298 像素，darkPixels=2500/2500 确认有内容）
+```
+
+### api.js 两处必要补丁
 
 ```bash
+# 补丁一：去掉版本哈希前缀
 sed -i '' "s|const ver = '/9.3.0-{{HASH_POSTFIX}}'|const ver = ''|" \
   public/web-apps/apps/api/documents/api.js
-```
 
-**补丁二：parentOrigin 设为 file://**
-
-```bash
+# 补丁二：parentOrigin 设为 file://
 sed -i '' "s|_config.parentOrigin = window.location.origin;|_config.parentOrigin = \"file://\";|" \
   public/web-apps/apps/api/documents/api.js
 ```
 
-原因：`openDocumentFromBinary` postMessage 路由的条件是：
-```javascript
-if (t.origin === window.parentOrigin || t.origin === window.location.origin || ...)
-```
-设为 `"file://"` 后，`t.origin === window.location.origin`（两者都是 localhost:5174）这一分支仍然成立，所以路由正常，但同时激活了 Desktop-specific 的处理路径。
-
-### 3. AscDesktopEditor mock 方法列表
-
-逐步通过 "X is not a function" 错误发现需要的方法：
-
-| 方法 | 原因 |
-|------|------|
-| `execCommand(cmd, data)` | 编辑器状态通知，editor:onready 在这里触发 |
-| `CreateEditorApi(api)` | Desktop 模式不走 socket.io，直接创建 SDK API |
-| `SetDocumentName(name)` | SDK 设置文档标题 |
-| `GetInstallPlugins()` | **必须返回含 2 个 group 的 JSON 字符串**（见下方） |
-| `LocalStartOpen()` | SDK 通知 native app "我准备好接收文件了" |
-
-**GetInstallPlugins 关键**：SDK 的 `window.UpdateSystemPlugins` 强制访问 `a[0].url` 和 `a[1].url`，所以必须返回至少 2 个元素：
-
-```javascript
-GetInstallPlugins: function() {
-  return JSON.stringify([
-    { url: '', pluginsData: [] },
-    { url: '', pluginsData: [] }
-  ]);
-}
-```
-
-**LocalStartOpen 陷阱**：每个字体脚本加载都会触发一次，需要加 guard：
-
-```javascript
-LocalStartOpen: function() {
-  if (window.__localStartOpenFired) return;
-  window.__localStartOpenFired = true;
-  // ... inject binary
-}
-```
-
-### 4. AllFonts.js 问题
-
-Desktop Editors 的 sdkjs 没有预构建的 `AllFonts.js`（这个文件在 Desktop app 运行时由 native 端从系统字体生成）。
-
-**解决方案**：从 Docker 版 sdkjs 备份里拷贝：
-
-```bash
-cp public/sdkjs/common.docker/AllFonts.js public/sdkjs/common/AllFonts.js
-```
-
-**注意**：AllFonts.js 会被 Service Worker 缓存。如果之前请求过 404（文件不存在时 Vite 返回 SPA HTML），SW 会缓存这个 HTML。必须清除 SW 缓存后重试：
-
-```javascript
-await caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
-await navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())));
-```
-
-### 5. Common.Gateway 事件系统解析
-
-```javascript
-// 定义
-Common.Gateway = new function() {
-  var t = this, e = $(t);  // e 是 jQuery 包装的 Gateway 本身
-  var i = {
-    openDocumentFromBinary: function(data) { e.trigger("opendocumentfrombinary", data) },
-    // ...
-  };
-  return {
-    on: function(eventName, callback) {
-      e.on(eventName, function(jqEvent, data) {
-        callback.call(t, data);  // 注意：jQuery handler 收到 (event, data)，Gateway.on 的回调只收到 data
-      });
-    },
-    appReady: function() { n({event: "onAppReady"}) },
-    // ...
-  };
-}
-```
-
-**关键**：`Common.Gateway` 没有 `trigger` 方法——`e.trigger()` 是通过内部 jQuery 包装对象调用的，外部无法直接触发。要触发 `opendocumentfrombinary` 只能通过：
-- 发送 postMessage `{command: 'openDocumentFromBinary', data: ArrayBuffer}`
-- 或直接调用 `window.Asc.editor.asc_openDocumentFromBytes(uint8Array)`
-
-### 6. 二进制注入：asc_openDocumentFromBytes
-
-**关键发现**：直接调用 `asc_openDocumentFromBytes` 确认有效：
-
-```javascript
-// 从 DevTools 控制台直接调用成功：
-const bin = window.parent.__pendingBinary;  // 存储在父页面的 Uint8Array
-const copy = new Uint8Array(bin.byteLength);
-copy.set(bin);
-window.Asc.editor.asc_openDocumentFromBytes(copy);
-// → 文档成功加载！标题变为 "test.docx - ONLYOFFICE"
-```
-
-**Emscripten WASM heap 陷阱**：`FS.readFile()` 返回的 Uint8Array 是 WASM heap 的 view。`uint8.buffer` 是整个 WASM heap（几十 MB）不是文件本身。必须先复制：
-
-```typescript
-const copy = new Uint8Array(src.byteLength);
-copy.set(src);
-// 现在 copy.buffer 是独立的 ArrayBuffer，只含文件内容
-```
-
-### 7. 时序问题（当前待解）
-
-`LocalStartOpen` 在字体脚本加载时触发（SDK 中途初始化阶段），此时 `app.js` 的 Main controller 还没运行（`opendocumentfrombinary` 监听器未注册）。
-
-调用 `asc_openDocumentFromBytes` 的时机必须在 SDK 完全准备好后。已验证：`app.js` 初始化时会自动调用 `Common.Gateway.appReady()`，这是最合适的注入时机：
-
-```javascript
-// 拦截 appReady 作为触发信号
-var orig = gw.appReady.bind(gw);
-gw.appReady = function() {
-  tryLoad();  // 在 appReady 时注入 binary
-  orig();     // 继续正常触发 onAppReady
-};
-```
-
-**当前状态**：此拦截方案尚未验证成功，是下一步的主要方向。
+`parentOrigin="file://"` 让 `openDocumentFromBinary` postMessage 走 file:// 分支（SDK 在 app.js 中有两个不同的消息处理路径）。
 
 ---
 
-## 当前 mock 完整实现
+## Vite 插件结构
 
+### onlyofficeVersionRewrite
+
+```typescript
+// 对 socket.io /doc/ 轮询返回 404
+// SDK 经过 60-120s 重试后放弃，触发 asc_onCoAuthoringDisconnect
+```
+
+**注意**：fake handshake（返回合法 EIO4 握手包）会让 socket.io 进入无限重连循环，反而更糟。简单 404 虽慢但可靠。
+
+### onlyofficeDesktopMock（注入到编辑器 index.html）
+
+关键部分：
+
+**1. XHR prototype patch（字体重定向）**
 ```javascript
-(function () {
-  function log() { /* ... */ }
+// 把 ascdesktop://fonts/C:\Windows\Fonts\arial.ttf → /fonts/LiberationSans-Regular.ttf
+// 未映射字体保持 ascdesktop:// → CORS 失败 → SDK 优雅跳过
+// 注意：不能用 404 替代，SDK 对 404 会等待（hang），对 CORS 失败会跳过
+var map = {
+  'arial.ttf':'LiberationSans-Regular.ttf',
+  'calibri.ttf':'LiberationSans-Regular.ttf',
+  // ... 50+ 映射
+  'msyh.ttc':'NotoSansSC-VF.ttf',  // 微软雅黑 → Noto 简体
+  // ...
+};
+XMLHttpRequest.prototype.open = function(method, url) {
+  if (url.startsWith('ascdesktop://fonts/')) {
+    var fn = /* 提取文件名 */ .toLowerCase();
+    if (map[fn]) arguments[1] = '/fonts/' + map[fn];
+  }
+  return origOpen.apply(this, arguments);
+};
+```
 
-  window.UpdateSystemPlugins = function(json) { /* SDK 自己定义，no-op */ };
-
-  window.AscDesktopEditor = {
-    execCommand: function(cmd, data) {
-      log('execCommand', cmd, data ? data.slice(0, 200) : '');
-    },
-    CreateEditorApi: function(api) {
-      log('CreateEditorApi', api);
-      window._editorApi = api;
-      // 抑制 "Connection is lost" 弹框
-      if (api && typeof api.asc_registerCallback === 'function') {
-        api.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
-        api.asc_registerCallback('asc_onConnectionStateChanged', function(){});
-      }
-    },
-    SetDocumentName: function(name) { log('SetDocumentName', name); },
-    LocalStartOpen: function() {
-      if (window.__localStartOpenFired) return;
-      window.__localStartOpenFired = true;
-      // 拦截 Common.Gateway.appReady 作为"SDK 完全就绪"信号
-      var gwCheckInterval = setInterval(function() {
-        var gw = window.Common && window.Common.Gateway;
-        if (!gw || gw.__appReadyIntercepted) return;
-        gw.__appReadyIntercepted = true;
-        var orig = gw.appReady.bind(gw);
-        gw.appReady = function() {
-          // 在此时注入 binary — SDK 所有 controller 已初始化
-          var bin = window.parent.__pendingBinary;
-          var editor = window.Asc && window.Asc.editor;
-          if (bin && editor && typeof editor.asc_openDocumentFromBytes === 'function') {
-            var copy = new Uint8Array(bin.byteLength);
-            copy.set(bin);
-            editor.asc_openDocumentFromBytes(copy);
-            window.parent.__localDocumentLoaded = true;
-          }
-          orig();
-        };
-        clearInterval(gwCheckInterval);
-      }, 20);
-    },
-    GetInstallPlugins: function() {
-      return JSON.stringify([{ url: '', pluginsData: [] }, { url: '', pluginsData: [] }]);
-    }
+**2. suppressDialog（抑制 Connection is lost 弹框）**
+```javascript
+// 轮询直到 Common.UI.warning 可用，然后包裹它屏蔽特定消息
+(function suppressDialog() {
+  var ui = window.Common && window.Common.UI;
+  if (!ui || !ui.warning || ui.__dlgSuppressed) {
+    setTimeout(suppressDialog, 200); return;
+  }
+  ui.__dlgSuppressed = true;
+  var orig = ui.warning.bind(ui);
+  ui.warning = function(opts) {
+    if (opts && opts.msg && opts.msg.indexOf('Connection is lost') !== -1) return;
+    return orig.apply(ui, arguments);
   };
 })();
 ```
 
+**问题**：有时弹框在 `Common.UI.warning` 可用前就出现（通过不同代码路径），导致偶尔抑制失败。
+
+**3. LocalStartOpen（二进制注入）**
+```javascript
+LocalStartOpen: function() {
+  if (window.__localStartOpenFired) return;  // guard：每字体脚本都触发
+  window.__localStartOpenFired = true;
+  // ... gwCheckInterval 尝试拦截 appReady（备用路径）
+  setTimeout(function() { tryLoad(); }, 500);
+
+  function tryLoad() {
+    if (window.__localBinaryInjected) return false;
+    var bin = window.parent.__pendingBinary;
+    var editor = window.Asc && window.Asc.editor;
+    if (!bin || !editor) return false;
+    var copy = new Uint8Array(bin.byteLength);
+    copy.set(bin);
+    window.__localBinaryInjected = true;
+    var savedDE = window.AscDesktopEditor;
+    window.AscDesktopEditor = null;  // 关键：临时清除让 BRj 走原始路径
+    try { editor.asc_openDocumentFromBytes(copy); }
+    finally { window.AscDesktopEditor = savedDE; }
+    window.parent.__localDocumentLoaded = true;
+  }
+},
+```
+
 ---
 
-## 文件变更清单
+## 关键陷阱汇总
+
+| 陷阱 | 现象 | 原因 | 解决 |
+|------|------|------|------|
+| `Shc()` 忽略 binary 数据 | asc_openDocumentFromBytes 不加载文档 | Desktop 模式重写 Shc，检测到 AscDesktopEditor 就调 LocalStartOpen | 临时清除 AscDesktopEditor |
+| LocalStartOpen 每字体脚本触发一次 | binary 被注入多次 | HTMLScriptElement.onload → Y7g → Shc → LocalStartOpen | guard：`__localStartOpenFired` |
+| AllFonts.js 改为短文件名 | LocalStartOpen 不触发，初始化链路变 | SDK 字体脚本加载（触发 LocalStartOpen）vs XHR 加载是不同机制 | 保持原版 AllFonts.js（Windows 路径） |
+| XHR 构造函数替换 | SDK 挂起或行为异常 | XMLHttpRequest 构造函数替换破坏了内部机制 | 改为 prototype.open patch |
+| 未映射字体返回 404 | 文档挂起（hang） | SDK 对 404 等待，对 CORS 失败跳过 | 只重定向有映射的字体，其余保持 ascdesktop:// |
+| fake socket.io 握手 | socket.io 无限重连 | 收到合法握手后 socket.io 认为能连，不断重试 | 简单 404，让 socket.io 自然超时 |
+| Common.Gateway.appReady 不可写 | intercepted appReady 不生效 | return 对象属性赋值被忽略 | 已发现但 gwCheckInterval 方式实际能写入 |
+| GetInstallPlugins 返回 '[]' | SDK 崩溃 | UpdateSystemPlugins 强制访问 a[0].url | 返回含 2 个 group 的 JSON |
+| template 里的反斜杠 | 脚本语法错误 | 模板字符串转义，`\\` → `\` | 用 `String.fromCharCode(92)` |
+
+---
+
+## 当前状态（2026-05-31 最终）
+
+### 已工作
+- ✅ 文档成功加载（`test.docx - ONLYOFFICE` 标题出现）
+- ✅ Canvas 1806×1298 有实际内容（darkPixels = 2500/2500）
+- ✅ 21 个字体成功加载（70MB，LiberationSans + DejaVu + NotoSans CJK）
+- ✅ `editor:onready` 触发，preloader 消失
+- ✅ 无 "An error has occurred while opening the file" 错误
+- ✅ XHR prototype patch 字体重定向工作正常
+
+### 待优化
+- ⏳ **CSS 骨架层不消失**：截图显示 gray bars，但底层 canvas 有内容。原因待查（可能是 `preloader:hide` CSS 动画还没结束，或 screenshot 工具无法捕获 canvas 内容）
+- ⏳ **加载时间**：60-120 秒（socket.io 60s 超时 + 70MB 字体解析）
+- ⏳ **Connection is lost 弹框**：偶尔在 Common.UI.warning 抑制就位前出现
+- ⏳ **新建文档**：`empty_bin.ts` 是 7.5.0 格式，需用 9.3.0 x2t 重新生成
+
+### 验证方法
+
+```javascript
+// 在浏览器控制台验证文档真实渲染：
+const iframe = document.querySelector('iframe');
+const canvases = Array.from(iframe.contentWindow.document.querySelectorAll('canvas'));
+const main = canvases.find(c => c.width > 1000);
+const ctx = main.getContext('2d');
+const px = ctx.getImageData(230, 310, 50, 50).data;
+const dark = Array.from(px).filter((v, i) => i % 4 < 3 && v < 100).length / 3;
+console.log('Dark pixels:', dark, '/ 2500');  // 应该 > 0 表示有内容
+```
+
+---
+
+## 文件变更清单（当前 upgrade/onlyoffice-9.3.0 分支）
 
 ```
 public/web-apps/apps/api/documents/api.js
@@ -274,74 +264,28 @@ public/web-apps/apps/api/documents/api.js
   - _config.parentOrigin = "file://"（激活 Desktop 文档路由）
 
 public/sdkjs/common/AllFonts.js
-  - 从 Docker 7.5.0 备份拷贝（Desktop sdkjs 不含此文件）
-
-vite.config.ts
-  - onlyofficeVersionRewrite()：/doc/ socket.io 路由返回 404
-  - onlyofficeDesktopMock()：注入 AscDesktopEditor mock 到编辑器 HTML
+  - 7.5.0 原版（Windows 字体路径，触发字体脚本加载链路 → LocalStartOpen）
+  - 注意：改为我们的字体路径会破坏初始化顺序
 
 lib/onlyoffice-editor.ts
-  - 存储 binData 到 window.__pendingBinary（iframe mock 可访问）
-  - onAppReady 时检查 __localDocumentLoaded，跳过重复的 openDocument 调用
+  - 存储 binData 到 window.__pendingBinary
+  - onAppReady 时检查 __localDocumentLoaded，跳过重复 openDocument
   - parentOrigin: 'file://' 加入 DocEditor config（冗余但保留）
 
 lib/document-converter.ts
   - absolutePath = new URL(SCRIPT_PATH, window.location.href).href
-    （新版 x2t.js pre-js 要求绝对 URL，否则 new URL(mySrc) 报错）
+  （新版 x2t.js 要求绝对 URL）
+
+vite.config.ts
+  - onlyofficeVersionRewrite：socket.io /doc/ 返回 404
+  - onlyofficeDesktopMock：
+    * XHR prototype patch（字体重定向，含 50+ Windows→开源字体映射）
+    * suppressDialog（Common.UI.warning 拦截）
+    * CreateEditorApi（存 api，注册 disconnect no-op）
+    * SetDocumentName, GetInstallPlugins（2 groups）
+    * LocalStartOpen（binary 注入，guard 防重复，临时清除 AscDesktopEditor）
+    * execCommand handler（title:button / editor:onready 信号）
+
+types/editor.d.ts
+  - 添加 openDocument? 方法声明
 ```
-
----
-
----
-
-## 最终工作机制（2026-05-31 晚间）
-
-经过完整调试，以下是稳定工作的完整流程：
-
-### 完整初始化链路
-
-```
-1. 用户上传文件 → x2t 转换 → binary 存入 window.__pendingBinary
-2. DocsAPI.DocEditor 创建（parentOrigin="file://", ver=''）
-3. AscDesktopEditor mock 注入：webapps:entry → webapps:features → CreateEditorApi
-4. GetInstallPlugins → UpdateSystemPlugins（2 group 数组）
-5. LocalStartOpen 触发（第一次：设置 guard，启动 500ms 定时器）
-6. 500ms 后：tryLoad() 调用，binary 注入：
-   a. 临时清除 window.AscDesktopEditor = null
-   b. 调用 editor.asc_openDocumentFromBytes(copy)
-      → Shc() 使用 BRj(d)（原始路径，处理二进制数据）
-   c. 恢复 window.AscDesktopEditor
-7. asc_openDocumentFromBytes 开始加载文档（server mode via BRj）
-8. 约 60 秒后：socket.io 重试超时 → asc_onCoAuthoringDisconnect 触发
-   （Common.UI.warning 拦截，弹框被抑制）
-9. app.js Main controller 初始化 → title:button → editor:onready
-10. 文档渲染（字体从 ascdesktop://fonts/ 加载，CORS 失败后用 fallback）
-```
-
-### 关键发现总结
-
-| 问题 | 原因 | 解决方案 |
-|------|------|---------|
-| `Shc()` 忽略 binary 数据 | Desktop 模式下 `Shc` 被重写，检测到 `AscDesktopEditor` 就调 `LocalStartOpen` | 临时清除 `AscDesktopEditor = null` 后再调 `asc_openDocumentFromBytes` |
-| `opendocumentfrombinary` 事件无效 | Desktop 模式下 `app.js` 的 Main controller 不走 `onLaunch` | 直接调 SDK 的 `asc_openDocumentFromBytes` 绕过事件路由 |
-| appReady 不可写 | `Common.Gateway` 的 `appReady` 是 return 对象属性，`Object.assign` 无效 | 用 `gwCheckInterval` 轮询 + `gw.appReady = wrapper`（实测可写） |
-| `GetInstallPlugins` 返回 `[]` 崩溃 | SDK `UpdateSystemPlugins` 强制访问 `a[0].url` | 必须返回含 2 个 group 的 JSON 字符串 |
-| `AllFonts.js` 引起字体崩溃 | Docker 版 `AllFonts.js` 列了 218 个字体 ID，SDK 等待全部加载 | 换回原版（empty `__fonts_files`） |
-| socket.io 重连循环 | fake handshake 让 socket.io 认为能连，一直重试 | 保持 404，接受 ~60s 超时 |
-| "Connection is lost" 弹框 | socket.io 超时后 `asc_onCoAuthoringDisconnect` 触发 app.js 回调 | 拦截 `Common.UI.warning`，屏蔽含 "Connection is lost" 的消息 |
-| 字体不渲染 | 文档引用 Windows 字体（Arial, Calibri 等），SDK 尝试 `ascdesktop://fonts/` | CORS 失败 → SDK 用 fallback，文字显示为 gray bars |
-
-### 当前状态
-
-- ✅ 文档正常加载（~60 秒，等 socket.io 超时）
-- ✅ 无 "Connection is lost" 弹框
-- ✅ 无 "An error has occurred while opening the file" 错误
-- ⏳ 字体渲染：文档结构正确但文字显示为灰条（Windows 字体不可用）
-- ⏳ 加载时间：需要约 60 秒
-
-### 下一步优化路径
-
-1. **字体渲染**：把 `AllFonts.js` 的 `__fonts_infos` 从 Windows 路径改为我们的 TTF 文件，这样 SDK 能用 `public/fonts/` 里的开源字体渲染
-2. **加载速度**：研究如何让 SDK 在 socket.io 超时前就触发 `asc_onCoAuthoringDisconnect`（可能需要在 OnlyOffice SDK 里找到 co-authoring 模块的超时参数）
-3. **生产构建**：`onlyofficeDesktopMock` 仅在 dev server 注入，生产需要把 mock 作为单独文件通过 SW 注入
-4. **新建文档**：`empty_bin.ts` 里的空文档 binary 是 7.5.0 格式，需要用 x2t 9.3.0 重新生成
