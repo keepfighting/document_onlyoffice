@@ -94,6 +94,7 @@ interface DocEditor {
       message?: string;
     };
   }) => void;
+  openDocument?: (data: Uint8Array) => void;
   downloadAs?: (data?: string) => void;
   destroyEditor: () => void;
 }

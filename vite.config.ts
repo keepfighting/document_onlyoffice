@@ -12,7 +12,9 @@ function onlyofficeVersionRewrite(): Plugin {
     name: 'onlyoffice-version-rewrite',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url && /\/doc\/[^/]+\/c\//.test(req.url)) {
+        if (!req.url) return next();
+        // Block socket.io polling — return clean 404 so client fails fast
+        if (/\/doc\/[^/]+\/c\//.test(req.url)) {
           res.statusCode = 404;
           res.end();
           return;
@@ -44,12 +46,38 @@ function onlyofficeDesktopMock(): Plugin {
     console.log('[DE]', parts.join(' | '));
   }
 
+  // Suppress "Connection is lost" dialog by intercepting Common.UI.warning
+  // once app.js has initialized it. Polls until available then wraps it.
+  (function suppressDialog() {
+    var ui = window.Common && window.Common.UI;
+    if (!ui || typeof ui.warning !== 'function' || ui.__dlgSuppressed) {
+      setTimeout(suppressDialog, 200);
+      return;
+    }
+    ui.__dlgSuppressed = true;
+    var orig = ui.warning.bind(ui);
+    ui.warning = function(opts) {
+      if (opts && typeof opts.msg === 'string' && opts.msg.indexOf('Connection is lost') !== -1) return;
+      return orig.apply(ui, arguments);
+    };
+  })();
+
   window.AscDesktopEditor = {
     execCommand: function(cmd, data) {
       log('execCommand', cmd, data ? data.slice(0, 200) : '');
       // title:button fires when app.js has initialized the toolbar UI — app is ready.
       // editor:onready fires after document loads (fallback path).
       // Use either signal to inject the binary directly.
+      // Suppress "Connection is lost" dialog after app.js initializes its callbacks.
+      // The disconnect callback is registered by app.js in onLaunch (after CreateEditorApi),
+      // so we must re-suppress it here after initialization.
+      if (cmd === 'editor:onready') {
+        var ed = window.Asc && window.Asc.editor;
+        if (ed && typeof ed.asc_registerCallback === 'function') {
+          ed.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
+          ed.asc_registerCallback('asc_onConnectionStateChanged', function(){});
+        }
+      }
       if ((cmd === 'title:button' || cmd === 'editor:onready') && !window.__localBinaryInjected) {
         var bin = window.parent && window.parent.__pendingBinary;
         var editor = window.Asc && window.Asc.editor;
