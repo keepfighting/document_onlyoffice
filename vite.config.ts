@@ -169,12 +169,21 @@ function onlyofficeDesktopMock(): Plugin {
           ed.asc_registerCallback('asc_onConnectionStateChanged', function(){});
         }
       }
-      // editor:onready = app.js fully initialized, opendocumentfrombinary listener
-      // is registered. Calling appReady() → parent openDocument → loadBinary →
-      // asc_openDocumentFromBytes (via app.js). This is the proven rendering path.
-      if (cmd === 'editor:onready' && window.Common && window.Common.Gateway) {
-        log('execCommand: editor:onready → appReady()');
-        window.Common.Gateway.appReady();
+      // editor:onready fires when app.js is fully initialized (after socket.io
+      // disconnect). At this point, this.tma/Qk/Gig() conditions are true,
+      // making asc_nativeOpenFile actually trigger the full rendering pipeline.
+      // We call asc_nativeOpenFile directly instead of going through appReady()
+      // → openDocument → loadBinary → asc_openDocumentFromBytes (server-mode).
+      if (cmd === 'editor:onready' && !window.__nativeFileLoaded) {
+        var orig = window.parent && window.parent.__pendingOriginalFile;
+        var api = window.__nativeFileApi || (window.Asc && window.Asc.editor);
+        if (orig && orig.byteLength && api && typeof api.asc_nativeOpenFile === 'function') {
+          window.__nativeFileLoaded = true;
+          var copy = new Uint8Array(orig.byteLength);
+          copy.set(orig);
+          log('execCommand: editor:onready → asc_nativeOpenFile (app.js ready)', copy.byteLength + 'b');
+          try { api.asc_nativeOpenFile(copy); } catch(e) { log('nativeOpenFile err', e.message||String(e)); }
+        }
       }
     },
     CreateEditorApi: function(api) {
