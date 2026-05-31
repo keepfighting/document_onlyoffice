@@ -44,6 +44,99 @@ function onlyofficeDesktopMock(): Plugin {
     console.log('[DE]', parts.join(' | '));
   }
 
+  // Redirect ascdesktop://fonts/ only for fonts we actually have in public/fonts/.
+  // For others, leave the ascdesktop:// URL → CORS failure → SDK skips gracefully.
+  // (The SDK handles CORS failures well but fails on 404/HTML responses.)
+  // Map Windows font filenames → our open-source alternatives in public/fonts/.
+  // Unmapped fonts keep ascdesktop:// URL → CORS failure → SDK skips gracefully.
+  (function() {
+    var map = {
+      // Arial family → LiberationSans (metric-compatible)
+      'arial.ttf':'LiberationSans-Regular.ttf',
+      'arialbd.ttf':'LiberationSans-Bold.ttf',
+      'ariali.ttf':'LiberationSans-Italic.ttf',
+      'arialbi.ttf':'LiberationSans-BoldItalic.ttf',
+      'arialn.ttf':'LiberationSans-Regular.ttf',
+      'arialnb.ttf':'LiberationSans-Bold.ttf',
+      'arialblk.ttf':'LiberationSans-Bold.ttf',
+      // Calibri/Candara/Corbel → LiberationSans
+      'calibri.ttf':'LiberationSans-Regular.ttf',
+      'calibrib.ttf':'LiberationSans-Bold.ttf',
+      'calibrii.ttf':'LiberationSans-Italic.ttf',
+      'calibriz.ttf':'LiberationSans-BoldItalic.ttf',
+      'calibril.ttf':'LiberationSans-Regular.ttf',
+      'candara.ttf':'LiberationSans-Regular.ttf',
+      'candrab.ttf':'LiberationSans-Bold.ttf',
+      'candrai.ttf':'LiberationSans-Italic.ttf',
+      'candrabi.ttf':'LiberationSans-BoldItalic.ttf',
+      'corbel.ttf':'LiberationSans-Regular.ttf',
+      'corbelb.ttf':'LiberationSans-Bold.ttf',
+      'corbeli.ttf':'LiberationSans-Italic.ttf',
+      'corbelbi.ttf':'LiberationSans-BoldItalic.ttf',
+      // Helvetica → LiberationSans
+      'helvetica.ttf':'LiberationSans-Regular.ttf',
+      'helveticabd.ttf':'LiberationSans-Bold.ttf',
+      // Verdana/Tahoma → DejaVuSans
+      'verdana.ttf':'DejaVuSans.ttf',
+      'verdanab.ttf':'DejaVuSans-Bold.ttf',
+      'verdanai.ttf':'DejaVuSans-Oblique.ttf',
+      'verdanaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      'tahoma.ttf':'DejaVuSans.ttf',
+      'tahomabd.ttf':'DejaVuSans-Bold.ttf',
+      // Times/Book Antiqua → DejaVuSans
+      'times.ttf':'DejaVuSans.ttf',
+      'timesbd.ttf':'DejaVuSans-Bold.ttf',
+      'timesi.ttf':'DejaVuSans-Oblique.ttf',
+      'timesbi.ttf':'DejaVuSans-BoldOblique.ttf',
+      // Cambria/Georgia → DejaVuSans
+      'cambria.ttc':'DejaVuSans.ttf',
+      'cambriab.ttf':'DejaVuSans-Bold.ttf',
+      'cambriai.ttf':'DejaVuSans-Oblique.ttf',
+      'cambriaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      'georgia.ttf':'DejaVuSans.ttf',
+      'georgiab.ttf':'DejaVuSans-Bold.ttf',
+      'georgiai.ttf':'DejaVuSans-Oblique.ttf',
+      'georgiaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      // Courier/Consolas → DejaVuSansMono
+      'cour.ttf':'DejaVuSansMono.ttf',
+      'courbd.ttf':'DejaVuSansMono-Bold.ttf',
+      'couri.ttf':'DejaVuSansMono-Oblique.ttf',
+      'courbi.ttf':'DejaVuSansMono-BoldOblique.ttf',
+      'consolab.ttf':'DejaVuSansMono-Bold.ttf',
+      'consolai.ttf':'DejaVuSansMono-Oblique.ttf',
+      'consolaz.ttf':'DejaVuSansMono-BoldOblique.ttf',
+      // Comic Sans → ComicNeue
+      'comic.ttf':'ComicNeue-Regular.ttf',
+      'comicbd.ttf':'ComicNeue-Bold.ttf',
+      'comici.ttf':'ComicNeue-Italic.ttf',
+      'comicz.ttf':'ComicNeue-BoldItalic.ttf',
+      // CJK fonts → Noto Sans
+      'msyh.ttc':'NotoSansSC-VF.ttf',
+      'msyhbd.ttc':'NotoSansSC-VF.ttf',
+      'msyhl.ttc':'NotoSansSC-VF.ttf',
+      'simsun.ttc':'NotoSansSC-VF.ttf',
+      'simhei.ttf':'NotoSansSC-VF.ttf',
+      'msjh.ttc':'NotoSansTC-VF.ttf',
+      'msjhbd.ttc':'NotoSansTC-VF.ttf',
+      'msmincho.ttc':'NotoSansJP-VF.ttf',
+      'msgothic.ttc':'NotoSansJP-VF.ttf',
+      'malgun.ttf':'NotoSansKR-VF.ttf',
+    };
+    var origOpen = window.XMLHttpRequest.prototype.open;
+    window.XMLHttpRequest.prototype.open = function(method, url) {
+      if (typeof url === 'string' && url.indexOf('ascdesktop://fonts/') === 0) {
+        var bs = String.fromCharCode(92);
+        var fp = url.slice(19);
+        var ls = Math.max(fp.lastIndexOf('/'), fp.lastIndexOf(bs));
+        var fn = fp.slice(ls + 1).toLowerCase();
+        var mapped = map[fn];
+        if (mapped) arguments[1] = '/fonts/' + mapped;
+        // else leave ascdesktop:// URL → CORS failure → SDK skips gracefully
+      }
+      return origOpen.apply(this, arguments);
+    };
+  })();
+
   // Suppress "Connection is lost" dialog by intercepting Common.UI.warning
   // once app.js has initialized it. Polls until available then wraps it.
   (function suppressDialog() {
