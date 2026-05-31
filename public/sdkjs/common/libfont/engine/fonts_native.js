@@ -3,7 +3,7 @@
  *
  * https://www.onlyoffice.com/
  *
- * Version: 9.3.0 (build:138)
+ * Version: 9.3.0 (build:140)
  */
 
 (function(window,undefined){function CReturnObject(){this.error=0}function CShapeString(size){this.size=size;this.pointer=new Uint8Array(size)}window["AscFonts"]=window["AscFonts"]||{};var AscFonts=window["AscFonts"];var g_native_engine=null;CReturnObject.prototype.free=function(){};var g_return_obj=new CReturnObject;var g_return_obj_count=new CReturnObject;g_return_obj_count.count=0;AscFonts.CopyStreamToMemory=function(data,size){return data};AscFonts.GetUint8ArrayFromPointer=function(pointer,size){return pointer};

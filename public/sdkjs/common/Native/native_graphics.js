@@ -3,7 +3,7 @@
  *
  * https://www.onlyoffice.com/
  *
- * Version: 9.3.0 (build:138)
+ * Version: 9.3.0 (build:140)
  */
 
 function CNativeGraphics(nativeEmbed){AscCommon.CGraphicsBase.call(this,AscCommon.RendererType.NativeDrawer);this.Native=nativeEmbed?nativeEmbed:CreateEmbedObject("CGraphicsEmbed");this.isNativeGraphics=true;this.width=0;this.height=0;this.m_dWidthMM=0;this.m_dHeightMM=0;this.m_lWidthPix=0;this.m_lHeightPix=0;this.m_dDpiX=96;this.m_dDpiY=96;this.TextureFillTransformScaleX=1;this.TextureFillTransformScaleY=1;this.dash_no_smart=null;this.TextClipRect=null;this.ArrayPoints=null;this.MaxEpsLine=null;

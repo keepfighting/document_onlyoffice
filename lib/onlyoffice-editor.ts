@@ -374,8 +374,28 @@ export function createEditorInstance(config: {
     const editorLang = getOnlyOfficeLang();
     console.log('Creating new editor instance for:', fileName, 'type:', fileType);
 
+    // Store binary in a window-level slot so the iframe mock can access it
+    // via window.parent.__pendingBinary in LocalStartOpen.
+    let pendingCopy: Uint8Array;
+    {
+      let src: Uint8Array;
+      if (binData instanceof Uint8Array) {
+        src = binData;
+      } else if (binData instanceof ArrayBuffer) {
+        src = new Uint8Array(binData);
+      } else {
+        src = new Uint8Array(0);
+      }
+      pendingCopy = new Uint8Array(src.byteLength);
+      pendingCopy.set(src);
+    }
+    (window as unknown as Record<string, unknown>).__pendingBinary = pendingCopy;
+
     try {
       window.editor = new window.DocsAPI.DocEditor('iframe', {
+        // Use file:// as parentOrigin so the iframe activates the Desktop-mode
+        // openDocumentFromBinary handler (which is gated on parentOrigin==="file://").
+        parentOrigin: 'file://',
         document: {
           title: fileName,
           url: fileName, // Use file name as identifier
@@ -414,12 +434,28 @@ export function createEditorInstance(config: {
               });
             }
 
-            // Load document content
-            window.editor?.sendCommand({
-              command: 'asc_openDocument',
-              // @ts-expect-error binData type is handled by the editor
-              data: { buf: binData },
-            });
+            // In Desktop mode, the Vite mock's LocalStartOpen already called
+            // asc_openDocumentFromBytes directly and set __localDocumentLoaded.
+            // Skip openDocument() to avoid double-loading.
+            if ((window as unknown as Record<string, unknown>).__localDocumentLoaded) {
+              (window as unknown as Record<string, unknown>).__localDocumentLoaded = false;
+              return;
+            }
+            // Load document content via openDocument (9.3.0+).
+            const openDoc = (window.editor as unknown as Record<string, unknown>)?.openDocument;
+            if (typeof openDoc === 'function') {
+              let src: Uint8Array;
+              if (binData instanceof Uint8Array) {
+                src = binData;
+              } else if (binData instanceof ArrayBuffer) {
+                src = new Uint8Array(binData);
+              } else {
+                src = new Uint8Array(0);
+              }
+              const copy = new Uint8Array(src.byteLength);
+              copy.set(src);
+              (openDoc as (data: Uint8Array) => void)(copy);
+            }
           },
           onDocumentReady: () => {
             console.log(`${t('documentLoaded')}${fileName}`);

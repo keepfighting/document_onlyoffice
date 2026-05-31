@@ -3,7 +3,7 @@
  *
  * https://www.onlyoffice.com/
  *
- * Version: 9.3.0 (build:138)
+ * Version: 9.3.0 (build:140)
  */
 
 var g_version="0.0.0-0";var pathnameParts=self.location.pathname.split("/");if(pathnameParts.length>1&&pathnameParts[pathnameParts.length-2])g_version=pathnameParts[pathnameParts.length-2];var g_cacheNamePrefix="document_editor_static_";var g_cacheName=g_cacheNamePrefix+g_version;var g_cacheablePrefixes=["web-apps/","sdkjs/","fonts/","sdkjs-plugins/","dictionaries/"];var isDesktopEditor=navigator.userAgent.indexOf("AscDesktopEditor")!==-1;var g_storageInfoCache=null;var g_storageInfoCacheTime=0;

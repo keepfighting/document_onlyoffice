@@ -3,7 +3,7 @@
  *
  * http://www.onlyoffice.com 
  *
- * Version: 9.3.0 (build:138)
+ * Version: 9.3.0 (build:140)
  */
 
 
@@ -411,12 +411,7 @@
         _config.editorConfig.canUpdateVersion = _config.events && !!_config.events.onOutdatedVersion;
         _config.editorConfig.canRequestFillingStatus = _config.events && !!_config.events.onRequestFillingStatus;
         _config.frameEditorId = placeholderId;
-        _config.parentOrigin = window.location.origin;
-
-        (function(){function d(){this.frames=[];this.x=window.scrollX;this.y=window.scrollY;this.lockCounter=0;window.addEventListener("scroll",this.onScroll.bind(this),!0)}function b(a){this.frame=a;window.AscEmbed.AscEmbedGlobalScroller||(window.AscEmbed.AscEmbedGlobalScroller=new d);window.AscEmbed.AscEmbedGlobalScroller.push(this.frame);window.addEventListener("blur",this.onBlur.bind(this),!1);window.addEventListener("pointermove",this.onMove.bind(this),!1);window.addEventListener("wheel",this.onMove.bind(this),
-!1);this.frame.addEventListener("pointerover",this.onOver.bind(this),!1);this.frame.addEventListener("pointerleave",this.onLeave.bind(this),!1)}window.AscEmbed=window.AscEmbed||{};d.prototype.onScroll=function(){let a=!1;0!==this.lockCounter&&(a=!0);if(!a)for(let c=0,e=this.frames.length;c<e;c++)if(document.activeElement===this.frames[c]){a=!0;this.lockWithTimeout(500);break}a?window.scrollTo(this.x,this.y):(this.x=window.scrollX,this.y=window.scrollY)};d.prototype.push=function(a){this.frames.push(a)};
-d.prototype.lockWithTimeout=function(a){this.lockCounter++;var c=this;setTimeout(function(){c.lockCounter--},a)};b.prototype.onBlur=function(){document.activeElement===this.frame&&window.AscEmbed.AscEmbedGlobalScroller.lockWithTimeout(500)};b.prototype.onOver=function(){};b.prototype.onLeave=function(){window.AscEmbed.AscEmbedGlobalScroller.lockWithTimeout(100);this.frame.blur()};b.prototype.onMove=function(){document.activeElement===this.frame&&(window.AscEmbed.AscEmbedGlobalScroller.lockWithTimeout(100),
-this.frame.blur())};window.AscEmbed.initWorker=function(a){window.AscEmbed.workers=window.AscEmbed.workers||[];a=new b(a);window.AscEmbed.workers.push(a);return a}})();
+        _config.parentOrigin = "file://";
 
         var onMouseUp = function (evt) {
             _processMouse(evt);
@@ -899,10 +894,7 @@ this.frame.blur())};window.AscEmbed.initWorker=function(a){window.AscEmbed.worke
             });
         };
 
-        function _createEmbedWorker() { return AscEmbed.initWorker(iframe); }
-
         return {
-            createEmbedWorker   : _createEmbedWorker,
             showMessage         : _showMessage,
             processRightsChange : _processRightsChange,
             denyEditingRights   : _denyEditingRights,
@@ -1169,7 +1161,7 @@ this.frame.blur())};window.AscEmbed.initWorker=function(a){window.AscEmbed.worke
     }
 
     function getAppParameters(config) {
-        var params = "?_dc=9.3.0-138";
+        var params = "?_dc=0";
 
         if (config.editorConfig && config.editorConfig.lang)
             params += "&lang=" + config.editorConfig.lang;
@@ -1309,7 +1301,7 @@ this.frame.blur())};window.AscEmbed.initWorker=function(a){window.AscEmbed.worke
 
     function extendAppPath(config,  path) {
         if ( !config.isLocalFile ) {
-            const ver = '/9.3.0-e8849642d4e0376767bff939a16123a4';
+            const ver = '';
             if ( ver.lastIndexOf('{{') < 0 && path.indexOf(ver) < 0 ) {
                 const pos = path.indexOf('/web-apps/app');
                 if ( pos > 0 )
