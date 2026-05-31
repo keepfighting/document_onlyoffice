@@ -292,9 +292,56 @@ lib/document-converter.ts
 
 ---
 
-## 下一步
+---
 
-1. **验证 appReady 拦截方案** — 确认在 appReady 时调用 `asc_openDocumentFromBytes` 能稳定渲染文档
-2. **抑制 "Connection is lost" 弹框** — `CreateEditorApi` 里注册 no-op 回调已实现，需验证生效
-3. **测试其他格式** — xlsx, pptx, csv 走同样路径验证
-4. **Vite → 生产构建** — `onlyofficeDesktopMock` 仅在 dev server 注入，生产构建需要把 mock script 打进 web-apps 文件或通过 SW 注入
+## 最终工作机制（2026-05-31 晚间）
+
+经过完整调试，以下是稳定工作的完整流程：
+
+### 完整初始化链路
+
+```
+1. 用户上传文件 → x2t 转换 → binary 存入 window.__pendingBinary
+2. DocsAPI.DocEditor 创建（parentOrigin="file://", ver=''）
+3. AscDesktopEditor mock 注入：webapps:entry → webapps:features → CreateEditorApi
+4. GetInstallPlugins → UpdateSystemPlugins（2 group 数组）
+5. LocalStartOpen 触发（第一次：设置 guard，启动 500ms 定时器）
+6. 500ms 后：tryLoad() 调用，binary 注入：
+   a. 临时清除 window.AscDesktopEditor = null
+   b. 调用 editor.asc_openDocumentFromBytes(copy)
+      → Shc() 使用 BRj(d)（原始路径，处理二进制数据）
+   c. 恢复 window.AscDesktopEditor
+7. asc_openDocumentFromBytes 开始加载文档（server mode via BRj）
+8. 约 60 秒后：socket.io 重试超时 → asc_onCoAuthoringDisconnect 触发
+   （Common.UI.warning 拦截，弹框被抑制）
+9. app.js Main controller 初始化 → title:button → editor:onready
+10. 文档渲染（字体从 ascdesktop://fonts/ 加载，CORS 失败后用 fallback）
+```
+
+### 关键发现总结
+
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| `Shc()` 忽略 binary 数据 | Desktop 模式下 `Shc` 被重写，检测到 `AscDesktopEditor` 就调 `LocalStartOpen` | 临时清除 `AscDesktopEditor = null` 后再调 `asc_openDocumentFromBytes` |
+| `opendocumentfrombinary` 事件无效 | Desktop 模式下 `app.js` 的 Main controller 不走 `onLaunch` | 直接调 SDK 的 `asc_openDocumentFromBytes` 绕过事件路由 |
+| appReady 不可写 | `Common.Gateway` 的 `appReady` 是 return 对象属性，`Object.assign` 无效 | 用 `gwCheckInterval` 轮询 + `gw.appReady = wrapper`（实测可写） |
+| `GetInstallPlugins` 返回 `[]` 崩溃 | SDK `UpdateSystemPlugins` 强制访问 `a[0].url` | 必须返回含 2 个 group 的 JSON 字符串 |
+| `AllFonts.js` 引起字体崩溃 | Docker 版 `AllFonts.js` 列了 218 个字体 ID，SDK 等待全部加载 | 换回原版（empty `__fonts_files`） |
+| socket.io 重连循环 | fake handshake 让 socket.io 认为能连，一直重试 | 保持 404，接受 ~60s 超时 |
+| "Connection is lost" 弹框 | socket.io 超时后 `asc_onCoAuthoringDisconnect` 触发 app.js 回调 | 拦截 `Common.UI.warning`，屏蔽含 "Connection is lost" 的消息 |
+| 字体不渲染 | 文档引用 Windows 字体（Arial, Calibri 等），SDK 尝试 `ascdesktop://fonts/` | CORS 失败 → SDK 用 fallback，文字显示为 gray bars |
+
+### 当前状态
+
+- ✅ 文档正常加载（~60 秒，等 socket.io 超时）
+- ✅ 无 "Connection is lost" 弹框
+- ✅ 无 "An error has occurred while opening the file" 错误
+- ⏳ 字体渲染：文档结构正确但文字显示为灰条（Windows 字体不可用）
+- ⏳ 加载时间：需要约 60 秒
+
+### 下一步优化路径
+
+1. **字体渲染**：把 `AllFonts.js` 的 `__fonts_infos` 从 Windows 路径改为我们的 TTF 文件，这样 SDK 能用 `public/fonts/` 里的开源字体渲染
+2. **加载速度**：研究如何让 SDK 在 socket.io 超时前就触发 `asc_onCoAuthoringDisconnect`（可能需要在 OnlyOffice SDK 里找到 co-authoring 模块的超时参数）
+3. **生产构建**：`onlyofficeDesktopMock` 仅在 dev server 注入，生产需要把 mock 作为单独文件通过 SW 注入
+4. **新建文档**：`empty_bin.ts` 里的空文档 binary 是 7.5.0 格式，需要用 x2t 9.3.0 重新生成
