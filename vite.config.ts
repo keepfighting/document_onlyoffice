@@ -169,64 +169,79 @@ function onlyofficeDesktopMock(): Plugin {
           ed.asc_registerCallback('asc_onConnectionStateChanged', function(){});
         }
       }
-      if ((cmd === 'title:button' || cmd === 'editor:onready') && !window.__localBinaryInjected) {
-        var bin = window.parent && window.parent.__pendingBinary;
-        var editor = window.Asc && window.Asc.editor;
-        if (bin && bin.byteLength && editor && typeof editor.asc_openDocumentFromBytes === 'function') {
-          window.__localBinaryInjected = true;
-          var copy = new Uint8Array(bin.byteLength);
-          copy.set(bin);
-          log('execCommand: inject binary', copy.byteLength + 'b');
-          // Temporarily clear AscDesktopEditor so Shc uses BRj (binary path) not Desktop loop
-          var savedDE = window.AscDesktopEditor;
-          window.AscDesktopEditor = null;
-          try { editor.asc_openDocumentFromBytes(copy); }
-          finally { window.AscDesktopEditor = savedDE; }
-          window.parent.__localDocumentLoaded = true;
-        }
+      // editor:onready = app.js fully initialized, opendocumentfrombinary listener
+      // is registered. Calling appReady() → parent openDocument → loadBinary →
+      // asc_openDocumentFromBytes (via app.js). This is the proven rendering path.
+      if (cmd === 'editor:onready' && window.Common && window.Common.Gateway) {
+        log('execCommand: editor:onready → appReady()');
+        window.Common.Gateway.appReady();
       }
     },
     CreateEditorApi: function(api) {
       log('CreateEditorApi', api);
       window._editorApi = api;
-      // Suppress "Connection is lost" dialog by no-op'ing the disconnect callback.
-      // The dialog fires when socket.io fails — harmless in offline Desktop mode.
-      if (api && typeof api.asc_registerCallback === 'function') {
-        api.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
-        api.asc_registerCallback('asc_onConnectionStateChanged', function(){});
-      }
+      if (!api || typeof api.asc_registerCallback !== 'function') return;
+      // Suppress "Connection is lost" dialog
+      api.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
+      api.asc_registerCallback('asc_onConnectionStateChanged', function(){});
+      // Wrap asc_openDocumentFromBytes to temporarily clear AscDesktopEditor.
+      // Without this, Shc() in Desktop mode ignores the binary data.
+      // This also makes the loadBinary path (via app.js) work correctly.
+      var origOpenBytes = api.asc_openDocumentFromBytes.bind(api);
+      api.asc_openDocumentFromBytes = function(data) {
+        var savedDE = window.AscDesktopEditor;
+        window.AscDesktopEditor = null;
+        try { return origOpenBytes(data); }
+        finally { window.AscDesktopEditor = savedDE; }
+      };
+      // Intercept asc_onDocumentContentReady registration — this fires in app.js
+      // onLaunch, signaling that app.js is fully initialized and ready to receive
+      // asc_nativeOpenFile. This bypasses the 60s socket.io timeout completely.
+      var origRegister = api.asc_registerCallback.bind(api);
+      api.asc_registerCallback = function(name, fn) {
+        origRegister(name, fn);
+        if (name === 'asc_onDocumentContentReady' && !window.__nativeFileReady) {
+          // Mark that onLaunch has run and the callback is registered.
+          // We call asc_nativeOpenFile later from LocalStartOpen when ta is ready.
+          window.__nativeFileReady = true;
+          window.__nativeFileApi = api;
+          log('asc_onDocumentContentReady registered, will call asc_nativeOpenFile in LocalStartOpen');
+        }
+      };
     },
     SetDocumentName: function(name) { log('SetDocumentName', name); },
     // Called by SDK when Desktop mode is ready to start opening a file.
-    // We directly call asc_openDocumentFromBytes with the binary stored in
-    // window.parent.__pendingBinary by onlyoffice-editor.ts before creating
-    // the editor. This bypasses the socket.io/postMessage routing entirely.
+    // Step 1: call asc_openDocumentFromBytes(x2t_bin) to start server-mode loading.
+    //         This sets up state and eventually causes app.js to initialize.
+    // Step 2: after editor:onready fires (app.js ready), call asc_nativeOpenFile
+    //         with the ORIGINAL file for actual OOXML rendering.
     LocalStartOpen: function() {
       log('LocalStartOpen');
-      // Guard: only inject binary once — LocalStartOpen fires for each font script
       if (window.__localStartOpenFired) return;
       window.__localStartOpenFired = true;
-      // Wait until app.js fires Common.Gateway.appReady() automatically,
-      // which means all controllers are set up and SDK is ready to receive binary.
-      // We intercept appReady to know the right moment.
-      var origAppReady = null;
       function tryLoad() {
-        if (window.__localBinaryInjected) return false;  // prevent double injection
+        if (window.__localBinaryInjected) return false;
+        // Prefer asc_nativeOpenFile (OOXML path, direct rendering) if onLaunch
+        // has already registered asc_onDocumentContentReady (indicated by __nativeFileReady).
+        // This avoids the 60s socket.io timeout of the asc_openDocumentFromBytes path.
+        var orig = window.parent && window.parent.__pendingOriginalFile;
+        var api = window.__nativeFileApi || (window.Asc && window.Asc.editor);
+        // Use asc_openDocumentFromBytes (wrapped in CreateEditorApi to auto-clear AscDE).
+        // The wrapper ensures BRj() path runs. editor:onready → appReady() will trigger
+        // a second call via loadBinary, which is what actually renders the canvas.
         var bin = window.parent && window.parent.__pendingBinary;
         var editor = window.Asc && window.Asc.editor;
         if (!bin || !bin.byteLength || !editor || typeof editor.asc_openDocumentFromBytes !== 'function') {
           return false;
         }
-        var copy = new Uint8Array(bin.byteLength);
-        copy.set(bin);
-        log('LocalStartOpen: asc_openDocumentFromBytes', copy.byteLength + 'b');
+        var copyB = new Uint8Array(bin.byteLength);
+        copyB.set(bin);
+        log('LocalStartOpen: asc_openDocumentFromBytes (fallback)', copyB.byteLength + 'b');
         window.__localBinaryInjected = true;
-        // Temporarily clear AscDesktopEditor so Shc uses the original BRj path
-        // (binary data path) instead of the Desktop LocalStartOpen loop.
-        var savedDE = window.AscDesktopEditor;
-        window.AscDesktopEditor = null;
-        try { editor.asc_openDocumentFromBytes(copy); }
-        finally { window.AscDesktopEditor = savedDE; }
+        // asc_openDocumentFromBytes is already wrapped in CreateEditorApi to clear AscDE
+        editor.asc_openDocumentFromBytes(copyB);
+        // Do NOT set __localDocumentLoaded — let editor:onready → appReady() handle rendering.
+        return true;
         window.parent.__localDocumentLoaded = true;
         return true;
       }
