@@ -2,7 +2,7 @@
 
 **日期：** 2026-05-31  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 部分成功 — x2t WASM 已升级，sdkjs / web-apps 需回滚
+**状态：** 进行中 — Desktop Mode Mock 方案接近成功，见 [desktop-mode-mock 文档](./2026-05-31-onlyoffice-desktop-mode-mock.md)
 
 ---
 
