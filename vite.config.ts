@@ -4,17 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 
-// Return 404 for socket.io /doc/ polling so the client gets a clean failure
-// instead of Vite's SPA HTML (status 200 confuses socket.io into looping).
-// Note: api.js is patched to set ver='' so no version-hash prefix is added.
+// Return 404 for socket.io /doc/ polling. After socket.io's retry backoff
+// (~60s), the SDK fires asc_onCoAuthoringDisconnect and document renders.
+// api.js is patched: ver='' (no hash prefix), parentOrigin="file://".
 function onlyofficeVersionRewrite(): Plugin {
   return {
     name: 'onlyoffice-version-rewrite',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!req.url) return next();
-        // Block socket.io polling — return clean 404 so client fails fast
-        if (/\/doc\/[^/]+\/c\//.test(req.url)) {
+        if (req.url && /\/doc\/[^/]+\/c\//.test(req.url)) {
           res.statusCode = 404;
           res.end();
           return;
