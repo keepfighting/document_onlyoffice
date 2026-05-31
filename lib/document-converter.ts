@@ -24,8 +24,8 @@ export class X2TConverter {
     if (this.hasScriptLoaded) return;
 
     try {
-      // scriptOnLoad accepts an array of URLs
-      await scriptOnLoad([this.SCRIPT_PATH]);
+      const absolutePath = new URL(this.SCRIPT_PATH, window.location.href).href;
+      await scriptOnLoad([absolutePath]);
       this.hasScriptLoaded = true;
       console.log('X2T WASM script loaded successfully');
     } catch (error) {
