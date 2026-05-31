@@ -2,7 +2,7 @@
 
 **日期：** 2026-05-31  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 文档渲染工作（canvas 有内容），2 个 UI 问题待优化
+**状态：** 调试中 — canvas 仍黑色，`SetDrawingFreeze(false)` 未被调用
 
 ---
 
@@ -253,6 +253,61 @@ const px = ctx.getImageData(230, 310, 50, 50).data;
 const dark = Array.from(px).filter((v, i) => i % 4 < 3 && v < 100).length / 3;
 console.log('Dark pixels:', dark, '/ 2500');  // 应该 > 0 表示有内容
 ```
+
+---
+
+## Canvas 渲染问题深度调查（2026-06-01）
+
+### 问题现象
+
+尽管文档 `docType=2`、标题变为 `"test.docx - ONLYOFFICE"`、21 个字体成功加载，canvas 始终全黑。`.doc-placeholder` CSS 骨架层不消失，说明 `asc_onDocumentContentReady` 未触发（或触发了但 `SetDrawingFreeze(false)` 未被调用）。
+
+### 关键发现
+
+**`onDocumentContentReady` 触发链路（pos 1736229 in app.js）：**
+```javascript
+me._isDocReady = true;
+Common.NotificationCenter.trigger("app:ready", this.appOptions);  // 初始化所有 controller
+me.api.SetDrawingFreeze(false);  // ← 这行开启 canvas 渲染
+me.hidePreloader();              // ← 这行移除 doc-placeholder
+```
+
+**`asc_openDocumentFromBytes(BRj)` vs `asc_nativeOpenFile` 对比：**
+
+| 路径 | docType | 字体 XHR | canvas | 触发渲染 |
+|------|---------|---------|--------|---------|
+| `asc_openDocumentFromBytes(BRj)` | 2 | 21 个加载 | 全黑 | ❌ |
+| `asc_nativeOpenFile(docx)` | 2 | 0 | 全黑 | ❌ |
+
+**`BRj` 路径的特点（server-mode 原始 Shc）：**
+- 字体 XHR 请求会被触发（21 个字体通过 XHR patch 加载）
+- `docType=2` 被设置
+- 但 socket.io 服务端未能提供文档内容，rendering pipeline 不启动
+
+**`asc_nativeOpenFile` 路径的特点：**
+- 字体 XHR = 0（使用 native 字体加载路径，不走 XHR）
+- `docType=2` 被设置
+- `api.ta` 在 `CreateEditorApi` 时为 null，须在 `LocalStartOpen` 后调用
+- 文档标题更新说明 OOXML 被处理，但 `asc_onDocumentContentReady` 未触发
+
+**`editor:onready → appReady() → loadBinary` 链路：**
+1. `editor:onready` execCommand → 我们调 `Common.Gateway.appReady()`
+2. 父页面收到 `onAppReady` → 调 `openDocument(x2t_bin)`
+3. `openDocumentFromBinary` postMessage → iframe `loadBinary(x2t_bin)`
+4. `loadBinary` → `api.asc_openDocumentFromBytes(new Uint8Array(x2t_bin))`
+5. 我们包裹的 `asc_openDocumentFromBytes`（自动清 AscDE）→ `BRj(x2t_bin)` 
+
+字体加载（step 4 的 `BRj` 触发）发生在 30s 后，第二次 `loadBinary` 在 120s 后（socket.io 超时后）。但两次 `BRj` 调用后 canvas 仍黑。
+
+### 根本假设
+
+`BRj`（server-mode Shc）的文档内容来自 **socket.io 服务端**，不来自本地 binary。Binary 只是设置加载上下文（文件名、文档 ID），实际页面内容由服务端推送。没有服务端 → 有加载上下文、有字体 → 但无内容 → canvas 黑色。
+
+### 待验证方向
+
+1. **`asc_onDocumentContentReady` 是否触发**：在 `CreateEditorApi` 时拦截 `asc_registerCallback('asc_onDocumentContentReady', ...)` 后将回调包裹，加日志确认是否被调用
+2. **`SetDrawingFreeze(false)` 是否被调用**：直接监控 `api.SetDrawingFreeze`
+3. **`asc_nativeOpenFile` 为何不触发渲染**：检查 `T_f(N)` 是否返回 false（失败），以及 `asc_onError` 是否被调
 
 ---
 
