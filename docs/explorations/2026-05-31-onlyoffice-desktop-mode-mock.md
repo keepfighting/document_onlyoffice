@@ -303,11 +303,45 @@ me.hidePreloader();              // ← 这行移除 doc-placeholder
 
 `BRj`（server-mode Shc）的文档内容来自 **socket.io 服务端**，不来自本地 binary。Binary 只是设置加载上下文（文件名、文档 ID），实际页面内容由服务端推送。没有服务端 → 有加载上下文、有字体 → 但无内容 → canvas 黑色。
 
-### 待验证方向
+### 实测结果（2026-06-01）
 
-1. **`asc_onDocumentContentReady` 是否触发**：在 `CreateEditorApi` 时拦截 `asc_registerCallback('asc_onDocumentContentReady', ...)` 后将回调包裹，加日志确认是否被调用
-2. **`SetDrawingFreeze(false)` 是否被调用**：直接监控 `api.SetDrawingFreeze`
-3. **`asc_nativeOpenFile` 为何不触发渲染**：检查 `T_f(N)` 是否返回 false（失败），以及 `asc_onError` 是否被调
+**`editor:onready` 时调用 `asc_nativeOpenFile(docx)`：**
+
+| 观察 | 结果 |
+|------|------|
+| `docType` | 2（设置成功）|
+| `title` | test.docx - ONLYOFFICE（更新）|
+| `title:button {"disabled":{}}` | 出现（`app:ready` 触发！）|
+| `asc_onDocumentContentReady` | 从未触发 |
+| `SetDrawingFreeze(false)` | 手动调后才触发 |
+| `WordControl` | 始终 `false` |
+| canvas 内容 | 全黑 (rgb 0,0,0) |
+
+**`_isDocReady` 陷阱：**
+`onDocumentContentReady` 被 guard `if (!this._isDocReady)` 保护。第一次 `BRj` 调用时 `_isDocReady` 被设为 `true`，此后所有调用（包括 `asc_nativeOpenFile` 后的调用）都是 no-op。即使手动重置 `_isDocReady = false`，`SetDrawingFreeze(false)` 被调用，canvas 仍然全黑。
+
+**`WordControl` 从未创建的根本原因：**
+- `asc_nativeOpenFile(original_docx)` → `T_f(docx)` → OOXML path
+- `asc_nativeOpenFile(x2t_binary)` → `wKa.wt(binary)` → word binary path
+- 两条路都调用成功（返回 `docType=2`），但 `WordControl` 始终为 `false`
+- 说明文档内容加载处于某种挂起状态，渲染引擎未初始化
+
+**`title:button {"disabled":{}}` 出现的意义：**
+这是 `app:ready` 触发的信号，说明 app.js 认为文档已就绪（toolbar 已启用）。但 `WordControl` 的缺失意味着 SDK 内部的渲染引擎从未为这个文档实例建立连接。
+
+### 核心假设（待验证）
+
+`wKa.wt(N)` 需要 `this.ta.Ga`（渲染目标对象）正确初始化。该对象可能需要：
+1. Native 字体引擎（Desktop 专用，web 中无法访问）
+2. 特定的 WebGL/Canvas 上下文绑定
+3. 某个 Native 回调触发（如 `AscDesktopEditor.nativeInitComplete`）
+
+### 下一步调查方向
+
+1. **包裹 `wKa.prototype.wt`**：直接监控 `wt(N)` 的返回值和执行过程
+2. **检查 `this.ta.Ga`**：在调用时打印 `Ga` 对象的内容，看是否初始化完全
+3. **尝试 `asc_nativeOpenFile` 不带 `ta` 初始化**：在原始 Shc（非 Desktop 覆盖版本，即 `editor.BRj`）运行后立即调用 `wKa.wt`
+4. **研究 Native 初始化序列**：找到 Desktop App 中在 `LocalStartOpen` 响应前，native 侧如何准备渲染上下文
 
 ---
 
