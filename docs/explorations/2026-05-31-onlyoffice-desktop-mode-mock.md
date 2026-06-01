@@ -329,19 +329,39 @@ me.hidePreloader();              // ← 这行移除 doc-placeholder
 **`title:button {"disabled":{}}` 出现的意义：**
 这是 `app:ready` 触发的信号，说明 app.js 认为文档已就绪（toolbar 已启用）。但 `WordControl` 的缺失意味着 SDK 内部的渲染引擎从未为这个文档实例建立连接。
 
-### 核心假设（待验证）
+### 渲染引擎深度调查（2026-06-01）
 
-`wKa.wt(N)` 需要 `this.ta.Ga`（渲染目标对象）正确初始化。该对象可能需要：
-1. Native 字体引擎（Desktop 专用，web 中无法访问）
-2. 特定的 WebGL/Canvas 上下文绑定
-3. 某个 Native 回调触发（如 `AscDesktopEditor.nativeInitComplete`）
+**`ta.Ec.Ms` 是渲染的关键守门员：**
 
-### 下一步调查方向
+`M_f()` 条件：`if (!ta.Bf.jEa || !ta.Ec.Ms)` → 任意一个为假就进入错误路径。
+当前状态：`ta.Bf.jEa=true, ta.Ec.Ms=false` → M_f 进入错误路径 → 渲染无法启动。
 
-1. **包裹 `wKa.prototype.wt`**：直接监控 `wt(N)` 的返回值和执行过程
-2. **检查 `this.ta.Ga`**：在调用时打印 `Ga` 对象的内容，看是否初始化完全
-3. **尝试 `asc_nativeOpenFile` 不带 `ta` 初始化**：在原始 Shc（非 Desktop 覆盖版本，即 `editor.BRj`）运行后立即调用 `wKa.wt`
-4. **研究 Native 初始化序列**：找到 Desktop App 中在 `LocalStartOpen` 响应前，native 侧如何准备渲染上下文
+**`Ec.Ms` 在哪里设置：**
+- SDK 内部 `d.prototype.qYg`：`this.ta.Ec.Ms = new AscCommon.Xxh(this.rBd, this)` 
+- `window.Asc.editor.asc_nativeOpenFile` 调 `jre()` 而非 `qYg()` → **永远不设置 Ec.Ms**
+- `d` 类的 `asc_nativeOpenFile` 调 `qYg()` → 设置 Ec.Ms
+
+**`Xxh`（Word Control）是渲染视图：**
+- `Xxh` 创建成功：`new AscCommon.Xxh(editor.rBd, editor)` ✅
+- 手动设置 `ta.Ec.Ms = Xxh实例` → `EcMs=true` ✅
+- 但 canvas 仍黑 → `Xxh` 需要更多初始化
+
+**正确的文档加载流程：**
+- `asc_nativeOpenFile(docx)` → `jre()` → `ta.Ga = new e2(ta.Ec)` → `T_f(docx)` → `ta.Ga.aa.length=3` ✅
+- 但 `ta.Ec.Ms` 从未被设置 ❌
+
+**下一步最有希望的方向：**
+
+**实现最小化 socket.io 协议服务端**
+
+9.3.0 的 server-mode 完整支持：
+1. 连接建立后 SDK 设置 `Ec.Ms` 等完整渲染上下文
+2. 服务端发送文档数据 → SDK 渲染
+
+实现一个返回正确 OnlyOffice 协议的本地 socket.io 服务，能绕过所有 Desktop mode 限制。
+
+OnlyOffice Document Server 是开源的（https://github.com/ONLYOFFICE/server）。
+协议关键：连接建立后服务端发送 `{"type":"authChanges","changes":[],...}` 和文档数据。
 
 ---
 
