@@ -112,12 +112,19 @@ class I18n {
   }
 
   constructor() {
-    // Priority: URL locale -> cookie -> localStorage -> navigator.language -> 'en'
+    // Priority: path prefix -> URL locale -> cookie -> localStorage -> navigator.language -> 'en'
     let detectedLang: Language | null = null;
 
-    // 1. Try to get from URL parameter 'locale' (highest priority)
-    const urlLocale = this.getUrlParameter('locale');
-    detectedLang = this.normalizeLanguage(urlLocale);
+    // 0. Highest priority: sub-directory path prefix (e.g. /zh-cn/...)
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/zh-cn/')) {
+      detectedLang = LanguageCode.ZH;
+    }
+
+    // 1. Try to get from URL parameter 'locale'
+    if (!detectedLang) {
+      const urlLocale = this.getUrlParameter('locale');
+      detectedLang = this.normalizeLanguage(urlLocale);
+    }
 
     // 2. If not found in URL, try cookies (locale field)
     if (!detectedLang) {

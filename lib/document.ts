@@ -74,7 +74,7 @@ export const onOpenDocument = (): void => {
     // Only process if a file was actually selected
     // If user cancelled, onchange won't fire, nothing happens
     if (file) {
-      const { removeLoading } = showLoading();
+      const { removeLoading, setProgress } = showLoading();
       try {
         if (hideControlPanelFn) {
           hideControlPanelFn();
@@ -85,8 +85,10 @@ export const onOpenDocument = (): void => {
           url: await createObjectURL(file),
         });
         await initX2T();
+        setProgress(60, 'Converting document…');
         const { fileName, file: fileBlob } = getDocmentObj();
         await handleDocumentOperation({ file: fileBlob, fileName, isNew: !fileBlob });
+        setProgress(90, 'Opening editor…');
         // Clear file selection so the same file can be selected again
         fileInput.value = '';
         // Show menu guide after document is loaded
@@ -124,7 +126,7 @@ export const openDocumentFromUrl = async (
     fetchOptions?: RequestInit;
   },
 ): Promise<void> => {
-  const { removeLoading } = showLoading();
+  const { removeLoading, setProgress } = showLoading();
   try {
     if (hideControlPanelFn) {
       hideControlPanelFn();
@@ -178,6 +180,7 @@ export const openDocumentFromUrl = async (
 
     // Initialize and open document
     await initX2T();
+    setProgress(55, 'Converting document…');
     const { fileName: docFileName, file: fileBlob } = getDocmentObj();
     await handleDocumentOperation({
       file: fileBlob,
@@ -185,6 +188,7 @@ export const openDocumentFromUrl = async (
       isNew: !fileBlob,
       readonly: options?.readonly,
     });
+    setProgress(90, 'Opening editor…');
 
     // Show menu guide after document is loaded
     if (showMenuGuideFn) {

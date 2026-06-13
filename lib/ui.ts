@@ -246,6 +246,33 @@ const updatePageMeta = (page: LandingPage) => {
   if (ogDescription) ogDescription.content = page.description;
 };
 
+// Helper: push an ad slot once it is in the DOM
+const pushAdSlot = (ins: HTMLElement) => {
+  try {
+    ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+    ins.dataset.pushed = '1';
+  } catch {
+    // AdSense not loaded yet — slot will activate when script loads
+  }
+};
+
+// Create a Google AdSense <ins> element (slot activates when AdSense script is present)
+const createInsSlot = (id: string): HTMLElement => {
+  const wrap = document.createElement('div');
+  wrap.id = id;
+  wrap.className = 'ad-unit';
+
+  const ins = document.createElement('ins');
+  ins.className = 'adsbygoogle';
+  // Replace with your real publisher ID and slot IDs before going live
+  ins.setAttribute('data-ad-client', 'ca-pub-XXXXXXXXXXXXXXXX');
+  ins.setAttribute('data-ad-slot', '0000000000');
+  ins.setAttribute('data-ad-format', 'auto');
+  ins.setAttribute('data-full-width-responsive', 'true');
+  wrap.appendChild(ins);
+  return wrap;
+};
+
 // Hide control panel and show top floating bar
 export const hideControlPanel = (): void => {
   const container = document.querySelector('#control-panel-container') as HTMLElement;
@@ -265,6 +292,15 @@ export const hideControlPanel = (): void => {
       container.style.display = 'none';
     }, 300);
   }
+
+  // Mark editor as active (CSS uses this to show editor-ad-strip)
+  document.body.classList.add('editor-open');
+  const strip = document.getElementById('editor-ad-strip');
+  if (strip) {
+    strip.style.display = 'flex';
+    const ins = strip.querySelector('ins.adsbygoogle') as HTMLElement | null;
+    if (ins && !ins.dataset.pushed) pushAdSlot(ins);
+  }
 };
 
 // Show control panel and hide FAB
@@ -282,6 +318,11 @@ export const showControlPanel = (): void => {
   if (fabContainer && !window.editor) {
     fabContainer.style.display = 'none';
   }
+
+  // Return to landing mode
+  document.body.classList.remove('editor-open');
+  const strip = document.getElementById('editor-ad-strip');
+  if (strip) strip.style.display = 'none';
 };
 
 // Create fixed action button in bottom right corner
@@ -694,9 +735,26 @@ export const createControlPanel = (): void => {
     links.appendChild(link);
   });
 
+  // Ad slot between hero and feature cards (landing-page only, hidden when editor opens)
+  const landingAd = createInsSlot('ad-landing');
+  const landingAdIns = landingAd.querySelector('ins') as HTMLElement;
+
   landing.appendChild(hero);
+  landing.appendChild(landingAd);
   landing.appendChild(sections);
   landing.appendChild(links);
   container.appendChild(landing);
   document.body.appendChild(container);
+
+  // Activate landing ad after element is in DOM
+  if (landingAdIns) pushAdSlot(landingAdIns);
+
+  // Editor-mode ad strip: thin fixed bar at bottom, hidden until editor opens
+  const editorStrip = document.createElement('div');
+  editorStrip.id = 'editor-ad-strip';
+  editorStrip.className = 'editor-ad-strip';
+  editorStrip.style.display = 'none';
+  const editorAdIns = createInsSlot('ad-editor-strip');
+  editorStrip.appendChild(editorAdIns);
+  document.body.appendChild(editorStrip);
 };

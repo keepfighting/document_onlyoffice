@@ -413,3 +413,100 @@ r-button[type='text']::part(ran-btn-content) {
     grid-template-columns: 1fr;
   }
 }
+
+/* ─── Ad slots ─────────────────────────────────────────── */
+
+/* Landing-page ad unit (between hero and feature cards) */
+.ad-unit {
+  max-width: 1180px;
+  margin: 28px auto 0;
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Placeholder background when AdSense hasn't loaded */
+.ad-unit ins.adsbygoogle {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  background: rgba(20, 33, 61, 0.04);
+  border: 1px dashed rgba(20, 33, 61, 0.12);
+  border-radius: 4px;
+}
+
+/* Editor-mode ad strip: thin fixed bar above FAB */
+.editor-ad-strip {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(247, 244, 238, 0.96);
+  border-top: 1px solid rgba(20, 33, 61, 0.1);
+  backdrop-filter: blur(8px);
+  z-index: 900; /* below FAB (1000) */
+  padding: 0 80px 0 16px; /* right padding avoids FAB overlap */
+}
+
+.editor-ad-strip .ad-unit {
+  margin: 0;
+  max-width: 728px;
+  width: 100%;
+  min-height: 50px;
+}
+
+.editor-ad-strip .ad-unit ins.adsbygoogle {
+  min-height: 50px;
+}
+
+/* When editor strip is visible, nudge FAB up so it clears the strip */
+body.editor-open #fab-container {
+  bottom: 72px;
+}
+
+/* ─── Loading overlay ───────────────────────────────────── */
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(247, 244, 238, 0.92);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: opacity 0.28s ease;
+}
+
+.loading-progress-wrap {
+  width: 280px;
+  height: 4px;
+  background: rgba(20, 33, 61, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.loading-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1890ff 0%, #667eea 100%);
+  border-radius: 4px;
+  transition: width 0.35s ease;
+}
+
+.loading-status {
+  margin: 0;
+  font-size: 13px;
+  color: #5a6678;
+  font-family: system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}

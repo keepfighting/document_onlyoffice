@@ -33,7 +33,7 @@ export const events: Record<string, MessageHandler<any, unknown>> = {
     }
     fileChunks.push(data);
     if (fileChunks.length >= data.totalChunks) {
-      const { removeLoading } = showLoading();
+      const { removeLoading, setProgress } = showLoading();
       try {
         const file = await MessageCodec.decodeFileChunked(fileChunks);
         setDocmentObj({
@@ -42,8 +42,10 @@ export const events: Record<string, MessageHandler<any, unknown>> = {
           url: await createObjectURL(file),
         });
         await initX2T();
+        setProgress(60, 'Converting document…');
         const { fileName, file: fileBlob } = getDocmentObj();
         await handleDocumentOperation({ file: fileBlob, fileName, isNew: !fileBlob });
+        setProgress(90, 'Opening editor…');
         // Show menu guide after document is loaded
         if (showMenuGuideFn) {
           setTimeout(() => {

@@ -307,6 +307,30 @@ function onlyofficeDesktopMock(): Plugin {
   };
 }
 
+// Inject Google Analytics into every HTML page at build time.
+// Only active in production — dev mode skips it to keep the console clean.
+function injectGtag(): Plugin {
+  const GTAG_ID = 'G-VQCV194W8Q';
+  const snippet = `<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${GTAG_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${GTAG_ID}');
+</script>`;
+  return {
+    name: 'inject-gtag',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, ctx) {
+        if (ctx.server) return html; // skip in dev
+        return html.replace('</head>', `${snippet}\n</head>`);
+      },
+    },
+  };
+}
+
 const __filename = fileURLToPath(import.meta.url);
 
 const __dirname = path.dirname(__filename);
@@ -314,7 +338,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   base: './',
   publicDir: 'public',
-  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock()],
+  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock(), injectGtag()],
   build: {
     rollupOptions: {
       input: {
@@ -327,6 +351,16 @@ export default defineConfig({
         onlyofficeWasm: resolve(__dirname, 'onlyoffice-wasm/index.html'),
         embedDocumentEditor: resolve(__dirname, 'embed-document-editor/index.html'),
         selfHostedDocumentEditor: resolve(__dirname, 'self-hosted-document-editor/index.html'),
+        // zh-cn pages
+        zhCnMain: resolve(__dirname, 'zh-cn/index.html'),
+        zhCnDocxEditor: resolve(__dirname, 'zh-cn/docx-editor/index.html'),
+        zhCnXlsxEditor: resolve(__dirname, 'zh-cn/xlsx-editor/index.html'),
+        zhCnPptxEditor: resolve(__dirname, 'zh-cn/pptx-editor/index.html'),
+        zhCnCsvEditor: resolve(__dirname, 'zh-cn/csv-editor/index.html'),
+        zhCnPrivateDocumentEditor: resolve(__dirname, 'zh-cn/private-document-editor/index.html'),
+        zhCnOnlyofficeWasm: resolve(__dirname, 'zh-cn/onlyoffice-wasm/index.html'),
+        zhCnEmbedDocumentEditor: resolve(__dirname, 'zh-cn/embed-document-editor/index.html'),
+        zhCnSelfHostedDocumentEditor: resolve(__dirname, 'zh-cn/self-hosted-document-editor/index.html'),
       },
     },
   },
