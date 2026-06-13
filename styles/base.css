@@ -508,14 +508,11 @@ body.editor-open .landing-nav {
   overflow: hidden;
 }
 
-/* Placeholder background when AdSense hasn't loaded */
+/* No placeholder styling — invisible until AdSense fills it */
 .ad-unit ins.adsbygoogle {
   display: block;
   width: 100%;
   min-height: 90px;
-  background: rgba(20, 33, 61, 0.04);
-  border: 1px dashed rgba(20, 33, 61, 0.12);
-  border-radius: 4px;
 }
 
 /* Editor-mode ad strip: thin fixed bar above FAB */
@@ -543,6 +540,8 @@ body.editor-open .landing-nav {
 }
 
 .editor-ad-strip .ad-unit ins.adsbygoogle {
+  display: block;
+  width: 100%;
   min-height: 50px;
 }
 
