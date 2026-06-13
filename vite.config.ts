@@ -315,6 +315,21 @@ export default defineConfig({
   base: './',
   publicDir: 'public',
   plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        privateDocumentEditor: resolve(__dirname, 'private-document-editor/index.html'),
+        docxEditor: resolve(__dirname, 'docx-editor/index.html'),
+        xlsxEditor: resolve(__dirname, 'xlsx-editor/index.html'),
+        pptxEditor: resolve(__dirname, 'pptx-editor/index.html'),
+        csvEditor: resolve(__dirname, 'csv-editor/index.html'),
+        onlyofficeWasm: resolve(__dirname, 'onlyoffice-wasm/index.html'),
+        embedDocumentEditor: resolve(__dirname, 'embed-document-editor/index.html'),
+        selfHostedDocumentEditor: resolve(__dirname, 'self-hosted-document-editor/index.html'),
+      },
+    },
+  },
   resolve: {
     alias: {
       '@/lib': resolve(__dirname, 'lib'),

@@ -3,6 +3,249 @@ import { t } from './i18n';
 import { showLoading } from './loading';
 import { onCreateNew, onOpenDocument } from './document';
 
+type LandingPage = {
+  eyebrow: string;
+  title: string;
+  description: string;
+  badge: string;
+  sections: Array<{
+    title: string;
+    body: string;
+  }>;
+};
+
+const landingPages: Record<string, LandingPage> = {
+  '/': {
+    eyebrow: 'Private Office editing, no document server',
+    title: 'Local Document Editor in Your Browser',
+    description:
+      'Edit DOCX, XLSX, PPTX, and CSV files locally in your browser. Files stay on your device, with no upload, no account, and no document server runtime.',
+    badge: 'Multi-format',
+    sections: [
+      {
+        title: 'Private by default',
+        body: 'The editor runs in the browser and keeps local files local, which makes it useful for sensitive documents, internal tools, and offline workflows.',
+      },
+      {
+        title: 'Deploy anywhere',
+        body: 'Ship the static build to GitHub Pages, Vercel, Netlify, Cloudflare Pages, Nginx, or Docker. No document server is required.',
+      },
+      {
+        title: 'Built for products',
+        body: 'Use the iframe postMessage API to embed editing into your own app while your parent system owns auth, storage, and upload flow.',
+      },
+    ],
+  },
+  '/private-document-editor/': {
+    eyebrow: 'Private document editing in the browser',
+    title: 'Private Document Editor With No Upload',
+    description:
+      'Open Office documents in a local-first browser editor. Edit Word, Excel, PowerPoint, and CSV files without sending private files to a hosted document service.',
+    badge: 'No upload',
+    sections: [
+      {
+        title: 'Local-first workflow',
+        body: 'Documents are opened from the device or a CORS-enabled URL and handled in the browser, which keeps sensitive files out of third-party upload pipelines.',
+      },
+      {
+        title: 'Office file coverage',
+        body: 'Use one editor entry point for DOCX, XLSX, PPTX, and CSV workflows instead of separate single-format utilities.',
+      },
+      {
+        title: 'Deployable by teams',
+        body: 'Run it as a static site or Docker container for internal portals, privacy-sensitive reviews, and offline-friendly document tasks.',
+      },
+    ],
+  },
+  '/docx-editor/': {
+    eyebrow: 'Edit Word documents without upload',
+    title: 'DOCX editor with no server upload',
+    description:
+      'Open Word documents directly in the browser, edit locally, and save the file back to your device. A focused path for privacy-sensitive DOCX workflows.',
+    badge: 'DOCX no upload',
+    sections: [
+      {
+        title: 'No account gate',
+        body: 'Users can start from a local file or create a new document without signing in or sending a file to a hosted conversion service.',
+      },
+      {
+        title: 'Format-aware editing',
+        body: 'The editor is powered by OnlyOffice web apps and WASM conversion assets, preserving Office workflows better than plain rich-text editors.',
+      },
+      {
+        title: 'Offline-ready',
+        body: 'Install the PWA over HTTPS and keep a document editor available even when the network is unreliable.',
+      },
+    ],
+  },
+  '/xlsx-editor/': {
+    eyebrow: 'Edit spreadsheets without upload',
+    title: 'XLSX Editor in Your Browser',
+    description:
+      'Open and edit Excel spreadsheets locally in the browser. Create or review XLSX files without an account, upload flow, or document server.',
+    badge: 'XLSX local',
+    sections: [
+      {
+        title: 'Spreadsheet editing',
+        body: 'Work with Excel-style files through the OnlyOffice spreadsheet editor while keeping the file workflow local-first.',
+      },
+      {
+        title: 'Useful for internal data',
+        body: 'Review sheets, operational exports, and lightweight data files where a cloud upload is unnecessary or undesirable.',
+      },
+      {
+        title: 'Static deployment',
+        body: 'Host the same frontend build on GitHub Pages, Cloudflare Pages, Vercel, Nginx, or Docker.',
+      },
+    ],
+  },
+  '/pptx-editor/': {
+    eyebrow: 'Edit presentations without upload',
+    title: 'PPTX Editor in Your Browser',
+    description:
+      'Open and edit PowerPoint presentations locally in the browser. Create or update PPTX files with no account and no document server.',
+    badge: 'PPTX local',
+    sections: [
+      {
+        title: 'Presentation workflow',
+        body: 'Use the OnlyOffice presentation editor for slide decks while keeping private files on the user device.',
+      },
+      {
+        title: 'No hosted conversion step',
+        body: 'The local-first architecture avoids sending presentation files to a third-party conversion endpoint for basic editing workflows.',
+      },
+      {
+        title: 'Ready for portals',
+        body: 'Embed it in internal products, LMS systems, or admin tools with the iframe API when document storage lives elsewhere.',
+      },
+    ],
+  },
+  '/csv-editor/': {
+    eyebrow: 'Open tabular files locally',
+    title: 'CSV Editor in Your Browser',
+    description:
+      'Open CSV files in a browser-based Office editor for local review and editing. Keep simple tabular documents off upload-based tools.',
+    badge: 'CSV local',
+    sections: [
+      {
+        title: 'Tabular file support',
+        body: 'Use a spreadsheet-style interface for CSV files instead of editing structured data in a plain text box.',
+      },
+      {
+        title: 'Private by default',
+        body: 'A local-first flow is useful for exports, reports, and small datasets that should not be copied into random online tools.',
+      },
+      {
+        title: 'One editor surface',
+        body: 'Keep CSV, XLSX, DOCX, and PPTX workflows behind the same product interface and deployment pipeline.',
+      },
+    ],
+  },
+  '/onlyoffice-wasm/': {
+    eyebrow: 'OnlyOffice in a static web app',
+    title: 'OnlyOffice WASM document editor',
+    description:
+      'A pure frontend integration path for OnlyOffice web apps and x2t WebAssembly conversion. Explore local Office editing without operating Document Server.',
+    badge: 'WASM architecture',
+    sections: [
+      {
+        title: 'Serverless architecture',
+        body: 'Static assets, WebAssembly conversion, and browser APIs replace a traditional document conversion backend for many local editing scenarios.',
+      },
+      {
+        title: 'Developer friendly',
+        body: 'The project includes Docker deployment, GitHub Pages deployment, iframe embedding, and documented postMessage events.',
+      },
+      {
+        title: 'Open-source constraints',
+        body: 'Fonts, AGPL obligations, and Office compatibility are documented so teams can evaluate the approach before adopting it.',
+      },
+    ],
+  },
+  '/embed-document-editor/': {
+    eyebrow: 'Iframe API for product teams',
+    title: 'Embed a private document editor',
+    description:
+      'Embed the editor with an iframe and control document open/save flows with postMessage. Keep auth, permissions, and file storage in the parent app.',
+    badge: 'postMessage API',
+    sections: [
+      {
+        title: 'Clean ownership boundary',
+        body: 'The parent application handles users, permissions, upload, and persistence. The iframe focuses on editing and document events.',
+      },
+      {
+        title: 'Works with URLs',
+        body: 'Open documents with query parameters or postMessage, as long as remote sources provide CORS-compatible access.',
+      },
+      {
+        title: 'Product integration',
+        body: 'Use it for knowledge bases, LMS systems, internal portals, admin dashboards, or document review flows.',
+      },
+    ],
+  },
+  '/self-hosted-document-editor/': {
+    eyebrow: 'Static hosting or Docker',
+    title: 'Self-hosted document editor',
+    description:
+      'Run a browser-based Office editor on your own infrastructure. Deploy as static files or a Docker container, with optional HTTPS and basic auth.',
+    badge: 'Self-hosted',
+    sections: [
+      {
+        title: 'Own the deployment',
+        body: 'Serve the static app from Nginx, Cloudflare Pages, Vercel, Netlify, GitHub Pages, or the provided Docker image.',
+      },
+      {
+        title: 'Useful for private networks',
+        body: 'A local-first editor is a practical fit for intranets, labs, regulated teams, and workflows where documents should not leave the device.',
+      },
+      {
+        title: 'Simple operational model',
+        body: 'Build once, host static assets, and avoid maintaining a collaborative document server for single-user editing flows.',
+      },
+    ],
+  },
+};
+
+const pageSlugs = [
+  'private-document-editor',
+  'docx-editor',
+  'xlsx-editor',
+  'pptx-editor',
+  'csv-editor',
+  'onlyoffice-wasm',
+  'embed-document-editor',
+  'self-hosted-document-editor',
+];
+
+const normalizePathname = () => {
+  const pathname = window.location.pathname;
+  for (const slug of pageSlugs) {
+    if (pathname.endsWith(`/${slug}`) || pathname.endsWith(`/${slug}/`)) return `/${slug}/`;
+  }
+  return '/';
+};
+
+const getLandingPage = () => landingPages[normalizePathname()] || landingPages['/'];
+
+const getSiteRoot = () => {
+  const pathname = window.location.pathname;
+  for (const slug of pageSlugs) {
+    const slugIndex = pathname.lastIndexOf(`/${slug}`);
+    if (slugIndex !== -1) return `${pathname.slice(0, slugIndex)}/`;
+  }
+  return pathname.endsWith('/') ? pathname : `${pathname}/`;
+};
+
+const updatePageMeta = (page: LandingPage) => {
+  document.title = `${page.title} | OnlyOffice WASM`;
+  const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+  if (description) description.content = page.description;
+  const ogTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
+  if (ogTitle) ogTitle.content = page.title;
+  const ogDescription = document.querySelector<HTMLMetaElement>('meta[property="og:description"]');
+  if (ogDescription) ogDescription.content = page.description;
+};
+
 // Hide control panel and show top floating bar
 export const hideControlPanel = (): void => {
   const container = document.querySelector('#control-panel-container') as HTMLElement;
@@ -285,10 +528,52 @@ export const showMenuGuide = (): void => {
 
 // Create and append the control panel
 export const createControlPanel = (): void => {
+  document.querySelector('#seo-content')?.remove();
+
+  const page = getLandingPage();
+  updatePageMeta(page);
+
   // Create control panel container - centered in viewport
   const container = document.createElement('div');
   container.id = 'control-panel-container';
   container.className = 'control-panel-container';
+
+  const landing = document.createElement('main');
+  landing.className = 'landing-shell';
+
+  const hero = document.createElement('section');
+  hero.className = 'landing-hero';
+
+  const content = document.createElement('div');
+  content.className = 'landing-copy';
+
+  const eyebrow = document.createElement('p');
+  eyebrow.className = 'landing-eyebrow';
+  eyebrow.textContent = page.eyebrow;
+
+  const title = document.createElement('h1');
+  title.className = 'landing-title';
+  title.textContent = page.title;
+
+  const description = document.createElement('p');
+  description.className = 'landing-description';
+  description.textContent = page.description;
+
+  const trust = document.createElement('div');
+  trust.className = 'landing-trust';
+  ['No upload', 'No account', 'PWA offline', page.badge].forEach((item) => {
+    const badge = document.createElement('span');
+    badge.textContent = item;
+    trust.appendChild(badge);
+  });
+
+  content.appendChild(eyebrow);
+  content.appendChild(title);
+  content.appendChild(description);
+  content.appendChild(trust);
+
+  const panel = document.createElement('div');
+  panel.className = 'landing-action-panel';
 
   // Create button group - centered horizontally with wrap support
   const buttonGroup = document.createElement('div');
@@ -366,6 +651,52 @@ export const createControlPanel = (): void => {
   });
   buttonGroup.appendChild(newPptxButton);
 
-  container.appendChild(buttonGroup);
+  panel.appendChild(buttonGroup);
+
+  const hint = document.createElement('p');
+  hint.className = 'landing-hint';
+  hint.textContent = 'Create a new Office file or open a local document. Remote URLs work with CORS-enabled sources.';
+  panel.appendChild(hint);
+
+  hero.appendChild(content);
+  hero.appendChild(panel);
+
+  const sections = document.createElement('section');
+  sections.className = 'landing-sections';
+  page.sections.forEach((item) => {
+    const card = document.createElement('article');
+    card.className = 'landing-section';
+    const h2 = document.createElement('h2');
+    h2.textContent = item.title;
+    const body = document.createElement('p');
+    body.textContent = item.body;
+    card.appendChild(h2);
+    card.appendChild(body);
+    sections.appendChild(card);
+  });
+
+  const links = document.createElement('nav');
+  links.className = 'landing-links';
+  [
+    ['Private editor', `${getSiteRoot()}private-document-editor/`],
+    ['DOCX editor', `${getSiteRoot()}docx-editor/`],
+    ['XLSX editor', `${getSiteRoot()}xlsx-editor/`],
+    ['PPTX editor', `${getSiteRoot()}pptx-editor/`],
+    ['CSV editor', `${getSiteRoot()}csv-editor/`],
+    ['OnlyOffice WASM', `${getSiteRoot()}onlyoffice-wasm/`],
+    ['Embed API', `${getSiteRoot()}embed-document-editor/`],
+    ['Self-hosted', `${getSiteRoot()}self-hosted-document-editor/`],
+    ['GitHub', 'https://github.com/ranuts/document'],
+  ].forEach(([label, href]) => {
+    const link = document.createElement('a');
+    link.textContent = label;
+    link.href = href;
+    links.appendChild(link);
+  });
+
+  landing.appendChild(hero);
+  landing.appendChild(sections);
+  landing.appendChild(links);
+  container.appendChild(landing);
   document.body.appendChild(container);
 };

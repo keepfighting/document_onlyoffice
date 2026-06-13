@@ -9,11 +9,46 @@
     <meta name="theme-color" content="#0052cc" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <title>Document Editor</title>
+    <meta
+      name="description"
+      content="Edit DOCX, XLSX, PPTX, and CSV files locally in your browser. A private local document editor with no uploads, no server, PWA support, and iframe embedding."
+    />
+    <meta
+      name="keywords"
+      content="local document editor, private document editor, browser document editor, local office editor, docx editor, xlsx editor, pptx editor, onlyoffice wasm"
+    />
+    <link rel="canonical" href="https://ranuts.github.io/document/" />
+    <meta property="og:title" content="Local Document Editor in Your Browser" />
+    <meta
+      property="og:description"
+      content="A private local document editor powered by OnlyOffice WASM. Edit Office files locally with no uploads and no account."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ranuts.github.io/document/" />
+    <meta property="og:image" content="https://ranuts.github.io/document/img/512.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>Local Document Editor in Your Browser | Private Office Editing</title>
     <script src="web-apps/apps/api/documents/api.js"></script>
   </head>
 
   <body>
+    <main id="seo-content">
+      <h1>Local Document Editor in Your Browser</h1>
+      <p>
+        Edit DOCX, XLSX, PPTX, and CSV files locally in your browser with a privacy-first OnlyOffice WASM document
+        editor. No upload, no account, and no document server required.
+      </p>
+      <nav>
+        <a href="docx-editor/">DOCX editor</a>
+        <a href="xlsx-editor/">XLSX editor</a>
+        <a href="pptx-editor/">PPTX editor</a>
+        <a href="csv-editor/">CSV editor</a>
+        <a href="private-document-editor/">Private document editor</a>
+        <a href="onlyoffice-wasm/">OnlyOffice WASM</a>
+        <a href="embed-document-editor/">Embed API</a>
+        <a href="self-hosted-document-editor/">Self-hosted</a>
+      </nav>
+    </main>
     <div id="app" class="w-full h-full">
       <div id="iframe"></div>
     </div>
