@@ -765,25 +765,21 @@ export const showMenuGuide = (): void => {
   );
 };
 
-// Build the alternate-language URL for the current page.
-// EN  → /zh-cn/<slug>/
-// ZH  → /<slug>/
-const getAlternateLangUrl = (): { href: string; label: string } => {
+// Return the URL for a given target language on the current page.
+const getLangUrl = (targetLang: LanguageCode): string => {
   const pathname = window.location.pathname;
-
-  if (getLanguage() === LanguageCode.ZH) {
-    // strip /zh-cn prefix
-    const slug = pathname.replace(/^\/zh-cn/, '') || '/';
-    return { href: slug, label: 'EN' };
-  }
-
-  // find matching page slug and prepend /zh-cn
-  for (const slug of pageSlugs) {
-    if (pathname.endsWith(`/${slug}`) || pathname.endsWith(`/${slug}/`)) {
-      return { href: `/zh-cn/${slug}/`, label: '中文' };
+  if (targetLang === LanguageCode.ZH) {
+    if (pathname.startsWith('/zh-cn/')) return pathname;
+    for (const slug of pageSlugs) {
+      if (pathname.endsWith(`/${slug}`) || pathname.endsWith(`/${slug}/`)) {
+        return `/zh-cn/${slug}/`;
+      }
     }
+    return '/zh-cn/';
   }
-  return { href: '/zh-cn/', label: '中文' };
+  // target EN
+  if (!pathname.startsWith('/zh-cn/')) return pathname;
+  return pathname.replace(/^\/zh-cn/, '') || '/';
 };
 
 // Fixed top navigation — created once, independent of landing shell
@@ -804,12 +800,48 @@ export const createLandingNav = (): void => {
   nav.appendChild(createTopLink('GitHub', 'https://github.com/ranuts/document', true));
   nav.appendChild(createTopLink('Issues', 'https://github.com/ranuts/document/issues', true));
 
-  const { href: altHref, label: altLabel } = getAlternateLangUrl();
-  const langLink = document.createElement('a');
-  langLink.className = 'lang-switch';
-  langLink.href = altHref;
-  langLink.textContent = altLabel;
-  nav.appendChild(langLink);
+  // Globe icon + select language picker
+  const picker = document.createElement('div');
+  picker.className = 'lang-picker';
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'lang-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML =
+    '<circle cx="12" cy="12" r="10"/>' +
+    '<line x1="2" y1="12" x2="22" y2="12"/>' +
+    '<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>';
+
+  const select = document.createElement('select');
+  select.className = 'lang-select';
+  select.setAttribute('aria-label', 'Language');
+
+  const currentLang = getLanguage();
+  const options: Array<{ code: LanguageCode; label: string }> = [
+    { code: LanguageCode.EN, label: 'English' },
+    { code: LanguageCode.ZH, label: '中文' },
+  ];
+  for (const { code, label } of options) {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = label;
+    if (code === currentLang) opt.selected = true;
+    select.appendChild(opt);
+  }
+
+  select.addEventListener('change', () => {
+    window.location.href = getLangUrl(select.value as LanguageCode);
+  });
+
+  picker.appendChild(svg);
+  picker.appendChild(select);
+  nav.appendChild(picker);
 
   document.body.appendChild(nav);
 };
