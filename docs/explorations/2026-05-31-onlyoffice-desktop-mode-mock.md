@@ -1,8 +1,16 @@
 # OnlyOffice 9.3.0 Desktop Mode Mock 探索
 
-**日期：** 2026-05-31  
+**日期：** 2026-05-31 → 2026-06-14（持续更新）  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 调试中 — canvas 仍黑色，`SetDrawingFreeze(false)` 未被调用
+**状态：** ❌ 放弃 — `Ec.Ms` 初始化路径在 mock 环境下不可达，根本原因已明确
+
+> **2026-06-14 补充**：Desktop Mode Mock 卡在 `Ec.Ms`（WordControl）无法初始化。
+> 根本原因：`window.Asc.editor.asc_nativeOpenFile` 走 `jre()` 路径，不调用 `qYg()`，
+> 而只有 `qYg()` 会执行 `this.ta.Ec.Ms = new AscCommon.Xxh(...)`。
+> 即便手动创建 `Xxh` 实例并赋值，canvas 仍黑——`Xxh` 需要完整的服务端初始化上下文。
+>
+> **结论**：Mock 方案无法绕过 server-mode 渲染引擎的初始化依赖。
+> 下一步应走[路径 B（最小 socket.io 协议服务）](./2026-05-31-onlyoffice-9.3.0-upgrade.md#最终结论2026-06-14)。
 
 ---
 

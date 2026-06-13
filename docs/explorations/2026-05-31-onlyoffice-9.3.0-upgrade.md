@@ -1,8 +1,8 @@
 # OnlyOffice 升级探索：7.5.0 → 9.3.0
 
-**日期：** 2026-05-31  
+**日期：** 2026-05-31 → 2026-06-14（持续更新）  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 进行中 — Desktop Mode Mock 方案接近成功，见 [desktop-mode-mock 文档](./2026-05-31-onlyoffice-desktop-mode-mock.md)
+**状态：** ❌ 暂停 — 文件来源问题无解，见[最终结论](#最终结论2026-06-14)
 
 ---
 
@@ -200,14 +200,16 @@ function onlyofficeVersionRewrite(): Plugin {
 
 通过网络请求日志确认：在 9.3.0 下，`code.js` 从未被请求，即便等待 40+ 秒。`sdk-all.js` 不含任何 socket.io 代码，连接逻辑完全在 `app.js` 中。
 
-### 正确的文件来源
+### 正确的文件来源（原始判断，后被推翻）
 
-原项目的 7.5.0 文件来自 **OnlyOffice Desktop Editors** 的内嵌 web 组件，不是 Docker documentserver。两者是完全不同的产品线：
+原本判断：7.5.0 文件来自 **OnlyOffice Desktop Editors** 的内嵌 web 组件。
+**此判断于 2026-06-14 被证伪，见[最终结论](#最终结论2026-06-14)。**
 
 | 产品 | 文件来源 | 是否需要服务器 |
 |------|---------|-------------|
 | Document Server | Docker `onlyoffice/documentserver` | ✅ 必须 |
-| Desktop Editors（内嵌 web） | AppImage / DMG 内部 | ❌ 完全离线 |
+| Desktop Editors 9.x（内嵌 web） | macOS DMG / AppImage 内部 | ⚠️ 内嵌本地服务器 |
+| Desktop Editors ≤7.x 某版本 | 特殊离线编译 | ❌ 完全离线 |
 
 ---
 
@@ -250,26 +252,85 @@ function onlyofficeVersionRewrite(): Plugin {
    - 不应有 `code.js` 动态加载机制
    - socket.io 应为可选而非必须
 
-### 当前建议
+### 当前建议（2026-05-31，已过时）
 
-在找到正确的 9.3.0 Desktop 离线文件之前：
-- 在 `upgrade/onlyoffice-9.3.0` 分支回滚 sdkjs 和 web-apps
-- 只合并 x2t WASM 升级 + `document-converter.ts` 修复
-- Agent 阶段零（Plugin API 验证）先在 7.5.0 上进行，验证基础可行性
+~~在找到正确的 9.3.0 Desktop 离线文件之前，回滚 sdkjs/web-apps，只合并 x2t WASM 升级。~~
+
+**已由最终结论取代，见下文。**
+
+---
+
+## 最终结论（2026-06-14）
+
+### 关键发现：7.5 文件的真实来源
+
+通过检查 main 分支中 `app.js` 的版本注释：
+
+```
+Version: 7.4.1 (build:1)
+```
+
+`build:1` 是**自定义编译号**，官方任何 release（Desktop Editors 或 Document Server）均不使用此格式。**7.5.0 的 sdkjs/web-apps 是从 ONLYOFFICE 开源仓库手动编译的**，启用了 offline/standalone 标志，并非从任何安装包提取。
+
+### 关键发现：Desktop Editors 9.x 也是服务端架构
+
+实测 macOS Desktop Editors（ONLYOFFICE-arm.dmg，版本 9.4.0）：
+
+```
+app.js:   2.1MB  ← 与 Docker documentserver 完全相同
+code.js:  存在   ← 服务端架构标志
+```
+
+Desktop 9.x 的"离线"体验是通过 App 内嵌本地 document server 实现的，不是纯前端。
+
+### 架构变迁时间线
+
+| 时期 | 架构 | app.js | code.js |
+|------|------|--------|---------|
+| ≤7.x（某次） | 纯前端单体包 | ~5MB | 不存在 |
+| 8.x 开始 | 内嵌/外部服务器 | ~2MB | 存在 |
+
+变迁点推测在 7.x 后期到 8.0 之间，尚未精确定位。
+
+### 三条可行路径
+
+**路径 A：从源码编译（最彻底，工作量最大）**
+- ONLYOFFICE `web-apps` + `sdkjs` 均开源（MIT/Apache）
+- 需要找到 7.4.1 build:1 使用的 Grunt 编译配置，复现 standalone 模式
+- 目标：编译出 9.3.0 版本的 offline 单体包
+- 参考仓库：`ONLYOFFICE/web-apps`、`ONLYOFFICE/sdkjs`
+
+**路径 B：实现最小 socket.io 协议服务（技术挑战高）**
+- 不改前端文件，在 Vite 旁边起一个 tiny Node.js 服务
+- 实现足够让 `code.js` 加载 + `Ec.Ms` 初始化的最小协议子集
+- Document Server 开源（`ONLYOFFICE/server`），协议可逆向
+- Desktop Mode Mock 已验证了除渲染引擎初始化之外的全部环节，路径 B 可以从这里接续
+
+**路径 C：维持 7.5.0，仅合并已成功的升级（最稳，推荐优先）**
+- x2t WASM 升级（7.5 → 9.3.0）✅ 独立可用
+- `document-converter.ts` absolutePath 修复 ✅ 独立可用
+- sdkjs / web-apps 继续使用 7.5（`build:1` 编译版）
+- 等有资源再攻路径 A 或 B
+
+### 当前状态
+
+`upgrade/onlyoffice-9.3.0` 分支中 sdkjs/web-apps 来自 Docker 9.3.0，**导致功能完全不可用**（`code.js` 需要服务器，在纯前端环境下编辑器无法打开文档）。
+
+**立即需要做的事**：将 sdkjs/web-apps 回滚到 main 分支的 7.5.0（`build:1`），恢复可用状态。
 
 ---
 
 ## 相关文件变更
 
 ```
-修改（保留）：
-  lib/document-converter.ts    # absolutePath 修复
-  vite.config.ts               # onlyofficeVersionRewrite 插件
+修改（保留，可合并到 main）：
+  src/lib/document-converter.ts    # absolutePath 修复（兼容新旧版 x2t.js）
+  vite.config.ts                   # onlyofficeVersionRewrite 插件（对 7.5 无副作用）
 
 需回滚：
-  public/sdkjs/                # 从 9.3.0 Docker → 恢复 7.5.0
-  public/web-apps/             # 从 9.3.0 Docker → 恢复 7.5.0
+  public/sdkjs/                    # 从 9.3.0 Docker → 恢复 7.5.0 (build:1)
+  public/web-apps/                 # 从 9.3.0 Docker → 恢复 7.5.0 (build:1)
 
-保留：
-  public/wasm/x2t/             # 9.3.0+0（cryptpad 构建）
+可保留（与 sdkjs/web-apps 版本无关）：
+  public/wasm/x2t/                 # 9.3.0+0（cryptpad 构建）
 ```
