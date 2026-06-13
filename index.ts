@@ -5,6 +5,7 @@ import { onCreateNew, openDocumentFromUrl, setUICallbacks } from './lib/document
 import {
   createControlPanel,
   createFixedActionButton,
+  createLandingNav,
   hideControlPanel,
   showControlPanel,
   showMenuGuide,
@@ -49,6 +50,7 @@ window.hideControlPanel = hideControlPanel;
 window.showControlPanel = showControlPanel;
 
 // Initialize UI components
+createLandingNav();
 createFixedActionButton();
 createControlPanel();
 

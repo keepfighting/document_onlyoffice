@@ -307,6 +307,22 @@ function onlyofficeDesktopMock(): Plugin {
   };
 }
 
+// Hide #seo-content before first paint to eliminate flash-of-unstyled-content
+// when navigating between pages. JS removes it and renders the landing panel.
+// noscript re-shows it so crawlers without JS still see the content.
+function injectCriticalStyle(): Plugin {
+  const style = `<style>#seo-content{display:none}</style><noscript><style>#seo-content{display:block}</style></noscript>`;
+  return {
+    name: 'inject-critical-style',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        return html.replace('<head>', `<head>\n${style}`);
+      },
+    },
+  };
+}
+
 // Inject Google Analytics into every HTML page at build time.
 // Only active in production — dev mode skips it to keep the console clean.
 function injectGtag(): Plugin {
@@ -338,7 +354,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   base: './',
   publicDir: 'public',
-  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock(), injectGtag()],
+  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock(), injectCriticalStyle(), injectGtag()],
   build: {
     rollupOptions: {
       input: {

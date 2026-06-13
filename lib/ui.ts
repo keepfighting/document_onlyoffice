@@ -1,5 +1,5 @@
 import { localStorageGetItem, localStorageSetItem } from 'ranuts/utils';
-import { t } from './i18n';
+import { LanguageCode, getLanguage, t } from './i18n';
 import { showLoading } from './loading';
 import { onCreateNew, onOpenDocument } from './document';
 
@@ -206,6 +206,189 @@ const landingPages: Record<string, LandingPage> = {
   },
 };
 
+const zhLandingPages: Record<string, LandingPage> = {
+  '/': {
+    eyebrow: '私密 Office 编辑，无需文档服务器',
+    title: '在浏览器中本地编辑文档',
+    description: '在浏览器中直接编辑 DOCX、XLSX、PPTX 和 CSV 文件，文件始终留在设备上，无需上传、无需账号、无需文档服务器。',
+    badge: '多格式支持',
+    sections: [
+      {
+        title: '默认私密',
+        body: '编辑器在浏览器内运行，本地文件始终留在本地，适合处理敏感文档、内部工具和离线工作流。',
+      },
+      {
+        title: '随处部署',
+        body: '将静态构建部署到 GitHub Pages、Vercel、Netlify、Cloudflare Pages、Nginx 或 Docker，无需文档服务器。',
+      },
+      {
+        title: '面向产品集成',
+        body: '通过 iframe postMessage API 将编辑器嵌入自己的应用，认证、存储和上传流程由父应用掌控。',
+      },
+    ],
+  },
+  '/private-document-editor/': {
+    eyebrow: '浏览器内私密文档编辑',
+    title: '无需上传的隐私文档编辑器',
+    description: '在本地优先的浏览器编辑器中打开 Office 文档，编辑 Word、Excel、PowerPoint 和 CSV 文件，无需将私密文件发送到托管服务。',
+    badge: '无需上传',
+    sections: [
+      {
+        title: '本地优先工作流',
+        body: '文档从设备或支持 CORS 的 URL 打开，在浏览器内处理，敏感文件不会进入第三方上传管道。',
+      },
+      {
+        title: '全格式覆盖',
+        body: '一个编辑器入口支持 DOCX、XLSX、PPTX 和 CSV，无需为每种格式单独使用不同工具。',
+      },
+      {
+        title: '团队可部署',
+        body: '作为静态站点或 Docker 容器运行，适用于内部门户、隐私敏感审阅和离线文档场景。',
+      },
+    ],
+  },
+  '/docx-editor/': {
+    eyebrow: '无需上传，编辑 Word 文档',
+    title: '无需上传的 DOCX 编辑器',
+    description: '直接在浏览器中打开 Word 文档，在本地编辑并保存回设备，专为隐私敏感的 DOCX 工作流设计。',
+    badge: 'DOCX 无需上传',
+    sections: [
+      {
+        title: '无账号门槛',
+        body: '从本地文件开始或新建文档，无需登录，也无需将文件发送到托管转换服务。',
+      },
+      {
+        title: '格式感知编辑',
+        body: '编辑器基于 OnlyOffice web apps 和 WASM 转换资产，比纯富文本编辑器更好地保留 Office 工作流。',
+      },
+      {
+        title: '离线可用',
+        body: '通过 HTTPS 安装为 PWA，即使网络不稳定也能随时使用文档编辑器。',
+      },
+    ],
+  },
+  '/xlsx-editor/': {
+    eyebrow: '无需上传，编辑表格',
+    title: '浏览器内 XLSX 编辑器',
+    description: '在浏览器中本地打开和编辑 Excel 表格，无需账号、无需上传、无需文档服务器。',
+    badge: 'XLSX 本地',
+    sections: [
+      {
+        title: '表格编辑',
+        body: '通过 OnlyOffice 表格编辑器处理 Excel 格式文件，同时保持本地优先的文件工作流。',
+      },
+      {
+        title: '适合内部数据',
+        body: '查看报表、运营导出和轻量数据文件，无需不必要的云端上传。',
+      },
+      {
+        title: '静态部署',
+        body: '可部署到 GitHub Pages、Cloudflare Pages、Vercel、Nginx 或 Docker。',
+      },
+    ],
+  },
+  '/pptx-editor/': {
+    eyebrow: '无需上传，编辑演示文稿',
+    title: '浏览器内 PPTX 编辑器',
+    description: '在浏览器中本地打开和编辑 PowerPoint 演示文稿，无需账号，无需文档服务器。',
+    badge: 'PPTX 本地',
+    sections: [
+      {
+        title: '演示文稿工作流',
+        body: '使用 OnlyOffice 演示文稿编辑器处理幻灯片，同时将私密文件保留在用户设备上。',
+      },
+      {
+        title: '无托管转换步骤',
+        body: '本地优先架构避免将演示文件发送到第三方转换端点。',
+      },
+      {
+        title: '适合门户嵌入',
+        body: '通过 iframe API 嵌入内部产品、LMS 系统或管理工具，文件存储留在父应用。',
+      },
+    ],
+  },
+  '/csv-editor/': {
+    eyebrow: '本地打开表格文件',
+    title: '浏览器内 CSV 编辑器',
+    description: '在基于浏览器的 Office 编辑器中打开 CSV 文件，本地查看和编辑，避免将数据上传到在线工具。',
+    badge: 'CSV 本地',
+    sections: [
+      {
+        title: '表格文件支持',
+        body: '使用电子表格风格界面处理 CSV，而非在纯文本框中编辑结构化数据。',
+      },
+      {
+        title: '默认私密',
+        body: '本地优先流程适合不应复制到随机在线工具的导出、报告和小型数据集。',
+      },
+      {
+        title: '统一编辑器',
+        body: 'CSV、XLSX、DOCX 和 PPTX 工作流共用同一产品界面和部署管道。',
+      },
+    ],
+  },
+  '/onlyoffice-wasm/': {
+    eyebrow: '静态 Web 应用中的 OnlyOffice',
+    title: 'OnlyOffice WASM 文档编辑器',
+    description: 'OnlyOffice web apps 和 x2t WebAssembly 转换的纯前端集成方案，无需运行 Document Server 即可体验本地 Office 编辑。',
+    badge: 'WASM 架构',
+    sections: [
+      {
+        title: '无服务器架构',
+        body: '静态资产、WebAssembly 转换和浏览器 API 替代了传统文档转换后端。',
+      },
+      {
+        title: '开发者友好',
+        body: '项目包含 Docker 部署、GitHub Pages 部署、iframe 嵌入和文档化的 postMessage 事件。',
+      },
+      {
+        title: '开源约束说明',
+        body: '字体、AGPL 义务和 Office 兼容性均有文档说明，团队可在采用前评估方案。',
+      },
+    ],
+  },
+  '/embed-document-editor/': {
+    eyebrow: '面向产品团队的 Iframe API',
+    title: '嵌入私密文档编辑器',
+    description: '通过 iframe 嵌入编辑器，用 postMessage 控制文档打开和保存流程，认证、权限和文件存储由父应用掌控。',
+    badge: 'postMessage API',
+    sections: [
+      {
+        title: '清晰的职责边界',
+        body: '父应用负责用户、权限、上传和持久化，iframe 专注于编辑和文档事件。',
+      },
+      {
+        title: '支持 URL 打开',
+        body: '通过查询参数或 postMessage 打开文档，只需远程来源支持 CORS。',
+      },
+      {
+        title: '产品集成',
+        body: '适用于知识库、LMS 系统、内部门户、管理后台或文档审阅流程。',
+      },
+    ],
+  },
+  '/self-hosted-document-editor/': {
+    eyebrow: '静态托管或 Docker',
+    title: '自部署文档编辑器',
+    description: '在自己的基础设施上运行基于浏览器的 Office 编辑器，部署为静态文件或 Docker 容器，支持可选的 HTTPS 和基础认证。',
+    badge: '自部署',
+    sections: [
+      {
+        title: '掌控部署',
+        body: '从 Nginx、Cloudflare Pages、Vercel、Netlify、GitHub Pages 或提供的 Docker 镜像提供静态应用。',
+      },
+      {
+        title: '适合私有网络',
+        body: '本地优先编辑器适合内网、实验室、合规团队以及文档不应离开设备的工作流。',
+      },
+      {
+        title: '简单运维模型',
+        body: '一次构建，托管静态资产，无需为单用户编辑场景维护协作文档服务器。',
+      },
+    ],
+  },
+};
+
 const pageSlugs = [
   'private-document-editor',
   'docx-editor',
@@ -217,23 +400,34 @@ const pageSlugs = [
   'self-hosted-document-editor',
 ];
 
+const allLandingPages: Record<string, Record<string, LandingPage>> = {
+  [LanguageCode.EN]: landingPages,
+  [LanguageCode.ZH]: zhLandingPages,
+};
+
 const normalizePathname = () => {
-  const pathname = window.location.pathname;
+  const pathname = window.location.pathname.replace(/^\/zh-cn/, '');
   for (const slug of pageSlugs) {
     if (pathname.endsWith(`/${slug}`) || pathname.endsWith(`/${slug}/`)) return `/${slug}/`;
   }
   return '/';
 };
 
-const getLandingPage = () => landingPages[normalizePathname()] || landingPages['/'];
+const getLandingPage = () => {
+  const lang = getLanguage();
+  const key = normalizePathname();
+  return (allLandingPages[lang]?.[key] ?? allLandingPages[lang]?.['/']) ?? landingPages['/'];
+};
 
 const getSiteRoot = () => {
   const pathname = window.location.pathname;
+  const isZh = getLanguage() === LanguageCode.ZH;
+  const prefix = isZh ? '/zh-cn' : '';
   for (const slug of pageSlugs) {
-    const slugIndex = pathname.lastIndexOf(`/${slug}`);
-    if (slugIndex !== -1) return `${pathname.slice(0, slugIndex)}/`;
+    if (pathname.lastIndexOf(`/${slug}`) !== -1) return `${prefix}/`;
   }
-  return pathname.endsWith('/') ? pathname : `${pathname}/`;
+  const clean = pathname.replace(/^\/zh-cn/, '') || '/';
+  return prefix + (clean.endsWith('/') ? clean : `${clean}/`);
 };
 
 const updatePageMeta = (page: LandingPage) => {
@@ -301,6 +495,8 @@ export const hideControlPanel = (): void => {
     const ins = strip.querySelector('ins.adsbygoogle') as HTMLElement | null;
     if (ins && !ins.dataset.pushed) pushAdSlot(ins);
   }
+  const landingNav = document.getElementById('landing-nav');
+  if (landingNav) landingNav.style.display = 'none';
 };
 
 // Show control panel and hide FAB
@@ -323,6 +519,8 @@ export const showControlPanel = (): void => {
   document.body.classList.remove('editor-open');
   const strip = document.getElementById('editor-ad-strip');
   if (strip) strip.style.display = 'none';
+  const landingNav = document.getElementById('landing-nav');
+  if (landingNav) landingNav.style.display = 'flex';
 };
 
 // Create fixed action button in bottom right corner
@@ -567,6 +765,55 @@ export const showMenuGuide = (): void => {
   );
 };
 
+// Build the alternate-language URL for the current page.
+// EN  → /zh-cn/<slug>/
+// ZH  → /<slug>/
+const getAlternateLangUrl = (): { href: string; label: string } => {
+  const pathname = window.location.pathname;
+
+  if (getLanguage() === LanguageCode.ZH) {
+    // strip /zh-cn prefix
+    const slug = pathname.replace(/^\/zh-cn/, '') || '/';
+    return { href: slug, label: 'EN' };
+  }
+
+  // find matching page slug and prepend /zh-cn
+  for (const slug of pageSlugs) {
+    if (pathname.endsWith(`/${slug}`) || pathname.endsWith(`/${slug}/`)) {
+      return { href: `/zh-cn/${slug}/`, label: '中文' };
+    }
+  }
+  return { href: '/zh-cn/', label: '中文' };
+};
+
+// Fixed top navigation — created once, independent of landing shell
+export const createLandingNav = (): void => {
+  const nav = document.createElement('nav');
+  nav.id = 'landing-nav';
+  nav.className = 'landing-nav';
+
+  const createTopLink = (text: string, href: string, external = false) => {
+    const a = document.createElement('a');
+    a.className = 'top-link';
+    a.href = href;
+    a.textContent = text;
+    if (external) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    return a;
+  };
+
+  nav.appendChild(createTopLink('GitHub', 'https://github.com/ranuts/document', true));
+  nav.appendChild(createTopLink('Issues', 'https://github.com/ranuts/document/issues', true));
+
+  const { href: altHref, label: altLabel } = getAlternateLangUrl();
+  const langLink = document.createElement('a');
+  langLink.className = 'lang-switch';
+  langLink.href = altHref;
+  langLink.textContent = altLabel;
+  nav.appendChild(langLink);
+
+  document.body.appendChild(nav);
+};
+
 // Create and append the control panel
 export const createControlPanel = (): void => {
   document.querySelector('#seo-content')?.remove();
@@ -602,7 +849,7 @@ export const createControlPanel = (): void => {
 
   const trust = document.createElement('div');
   trust.className = 'landing-trust';
-  ['No upload', 'No account', 'PWA offline', page.badge].forEach((item) => {
+  [t('trustNoUpload'), t('trustNoAccount'), t('trustPwaOffline'), page.badge].forEach((item) => {
     const badge = document.createElement('span');
     badge.textContent = item;
     trust.appendChild(badge);
@@ -696,7 +943,7 @@ export const createControlPanel = (): void => {
 
   const hint = document.createElement('p');
   hint.className = 'landing-hint';
-  hint.textContent = 'Create a new Office file or open a local document. Remote URLs work with CORS-enabled sources.';
+  hint.textContent = t('landingHint');
   panel.appendChild(hint);
 
   hero.appendChild(content);
@@ -718,17 +965,19 @@ export const createControlPanel = (): void => {
 
   const links = document.createElement('nav');
   links.className = 'landing-links';
-  [
-    ['Private editor', `${getSiteRoot()}private-document-editor/`],
-    ['DOCX editor', `${getSiteRoot()}docx-editor/`],
-    ['XLSX editor', `${getSiteRoot()}xlsx-editor/`],
-    ['PPTX editor', `${getSiteRoot()}pptx-editor/`],
-    ['CSV editor', `${getSiteRoot()}csv-editor/`],
-    ['OnlyOffice WASM', `${getSiteRoot()}onlyoffice-wasm/`],
-    ['Embed API', `${getSiteRoot()}embed-document-editor/`],
-    ['Self-hosted', `${getSiteRoot()}self-hosted-document-editor/`],
-    ['GitHub', 'https://github.com/ranuts/document'],
-  ].forEach(([label, href]) => {
+  const root = getSiteRoot();
+  const navItems: [string, string][] = [
+    [t('navPrivateEditor'), `${root}private-document-editor/`],
+    [t('navDocxEditor'),    `${root}docx-editor/`],
+    [t('navXlsxEditor'),   `${root}xlsx-editor/`],
+    [t('navPptxEditor'),   `${root}pptx-editor/`],
+    [t('navCsvEditor'),    `${root}csv-editor/`],
+    [t('navOnlyofficeWasm'), `${root}onlyoffice-wasm/`],
+    [t('navEmbedApi'),     `${root}embed-document-editor/`],
+    [t('navSelfHosted'),   `${root}self-hosted-document-editor/`],
+    ['GitHub',             'https://github.com/ranuts/document'],
+  ];
+  navItems.forEach(([label, href]) => {
     const link = document.createElement('a');
     link.textContent = label;
     link.href = href;

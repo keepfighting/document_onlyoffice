@@ -38,6 +38,24 @@ export interface I18nMessages {
   menu: string;
   menuGuide: string;
 
+  // Landing page trust badges
+  trustNoUpload: string;
+  trustNoAccount: string;
+  trustPwaOffline: string;
+
+  // Landing page hint
+  landingHint: string;
+
+  // Landing page nav links
+  navPrivateEditor: string;
+  navDocxEditor: string;
+  navXlsxEditor: string;
+  navPptxEditor: string;
+  navCsvEditor: string;
+  navOnlyofficeWasm: string;
+  navEmbedApi: string;
+  navSelfHosted: string;
+
   // Messages
   fileSavedSuccess: string;
   documentLoaded: string;
@@ -58,6 +76,18 @@ const messages: Record<Language, I18nMessages> = {
     newPowerPoint: '新建 PowerPoint',
     menu: '菜单',
     menuGuide: '菜单在右下角，悬停即可查看（点击关闭后不再提示）',
+    trustNoUpload: '无需上传',
+    trustNoAccount: '无需账号',
+    trustPwaOffline: 'PWA 离线',
+    landingHint: '新建 Office 文件或打开本地文档，远程 URL 需支持 CORS。',
+    navPrivateEditor: '隐私编辑器',
+    navDocxEditor: 'DOCX 编辑器',
+    navXlsxEditor: 'XLSX 编辑器',
+    navPptxEditor: 'PPTX 编辑器',
+    navCsvEditor: 'CSV 编辑器',
+    navOnlyofficeWasm: 'OnlyOffice WASM',
+    navEmbedApi: '嵌入 API',
+    navSelfHosted: '自部署',
     fileSavedSuccess: '文件保存成功：',
     documentLoaded: '文档加载完成：',
     failedToLoadEditor: '无法加载编辑器组件。请确保已正确安装 OnlyOffice API。',
@@ -73,6 +103,18 @@ const messages: Record<Language, I18nMessages> = {
     newPowerPoint: 'New PowerPoint',
     menu: 'Menu',
     menuGuide: "Menu is in the bottom right corner, hover to view (click to close, won't show again)",
+    trustNoUpload: 'No upload',
+    trustNoAccount: 'No account',
+    trustPwaOffline: 'PWA offline',
+    landingHint: 'Create a new Office file or open a local document. Remote URLs work with CORS-enabled sources.',
+    navPrivateEditor: 'Private editor',
+    navDocxEditor: 'DOCX editor',
+    navXlsxEditor: 'XLSX editor',
+    navPptxEditor: 'PPTX editor',
+    navCsvEditor: 'CSV editor',
+    navOnlyofficeWasm: 'OnlyOffice WASM',
+    navEmbedApi: 'Embed API',
+    navSelfHosted: 'Self-hosted',
     fileSavedSuccess: 'File saved successfully: ',
     documentLoaded: 'Document loaded: ',
     failedToLoadEditor: 'Failed to load editor component. Please ensure OnlyOffice API is properly installed.',

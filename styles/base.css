@@ -252,17 +252,16 @@ r-button[type='text']::part(ran-btn-content) {
 .landing-shell {
   min-height: 100%;
   box-sizing: border-box;
-  padding: 42px;
+  padding: 94px 42px 42px; /* top: nav-height(52px) + gap(42px) */
 }
 
 .landing-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
   gap: 32px;
-  align-items: end;
+  align-items: center;
   max-width: 1180px;
   margin: 0 auto;
-  min-height: 56vh;
 }
 
 .landing-copy {
@@ -393,12 +392,15 @@ r-button[type='text']::part(ran-btn-content) {
 
 @media (max-width: 860px) {
   .landing-shell {
-    padding: 26px 18px;
+    padding: 78px 18px 26px; /* top: nav(52px) + gap(26px) */
+  }
+
+  .landing-nav {
+    padding: 0 18px;
   }
 
   .landing-hero {
     grid-template-columns: 1fr;
-    min-height: auto;
   }
 
   .landing-title {
@@ -412,6 +414,61 @@ r-button[type='text']::part(ran-btn-content) {
   .landing-sections {
     grid-template-columns: 1fr;
   }
+}
+
+/* ─── Fixed top nav ─────────────────────────────────────── */
+
+.landing-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 42px;
+  gap: 4px;
+  z-index: 1001;
+  background: rgba(247, 244, 238, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(20, 33, 61, 0.06);
+}
+
+body.editor-open .landing-nav {
+  display: none;
+}
+
+.top-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5a6678;
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.top-link:hover {
+  background: rgba(20, 33, 61, 0.06);
+  color: #14213d;
+}
+
+.lang-switch {
+  font-size: 13px;
+  font-weight: 700;
+  color: #176448;
+  text-decoration: none;
+  padding: 5px 12px;
+  border: 1px solid rgba(23, 100, 72, 0.3);
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.lang-switch:hover {
+  background: rgba(23, 100, 72, 0.08);
+  color: #0f4a33;
 }
 
 /* ─── Ad slots ─────────────────────────────────────────── */
