@@ -2,7 +2,7 @@
 
 **日期：** 2026-06-14  
 **分支：** `upgrade/onlyoffice-9.3.0`  
-**状态：** 🔄 更新中 — 架构分析有重要修正，Desktop tarball 路径可能可行
+**状态：** ✅ 调查完成 — 路径 A（维持 7.4.1）已生效；路径 C（v8.1.1）实测失败；路径 D 理论可行待验证
 
 ---
 
@@ -186,6 +186,13 @@ OnlyOffice ≤7.x（某版本，已知 7.4.1 build:1 可用）
         app.js ~5MB（单体，含完整渲染引擎），无 code.js
         socket.io：requirejs path 中有，但 Desktop 构建中 "empty:"（不加载）
         Desktop App = 浏览器内嵌 + 独立渲染引擎，纯离线
+        文档加载：sendCommand({ command: 'asc_openDocument', data: { buf: binData } })
+
+OnlyOffice 8.x（已验证 v8.1.1）
+  └── 仍有 socket.io 依赖（实际测试确认）
+        app.js 为单体包（无 code.js），但 sdkjs 仍向 /doc/{key}/c/?EIO=4 发请求
+        ❌ 不可离线使用（与 7.4.1 不同）
+        socket.io 引入时间：早于 v8.1.1（确切版本号待考）
 
 OnlyOffice 8.2.0+ 到 9.x
   └── 拆分包架构（2024-10-21 引入 code.js，commit c860ceec）
@@ -195,7 +202,7 @@ OnlyOffice 8.2.0+ 到 9.x
                       OR 用 AscDesktopEditor mock 绕过（需正确实现，理论可行）
 ```
 
-**最后一个纯前端单体包版本：** 据 sdkjs GitHub commit 分析，`v8.1.1`（2024-07-17）是最后一个无 `code.js` 的版本。此后 `v8.2.0`（2024-10-21）引入拆分包架构。
+**注意**：`v8.1.1` 是最后一个无 `code.js` 的版本（`v8.2.0` 引入拆分包架构），但这与是否依赖 socket.io 无关。**实际测试证实 v8.1.1 仍然依赖 socket.io**，因此无 code.js ≠ 可离线。socket.io 引入发生在 7.4.1 之后、8.1.1 之前的某个版本。
 
 ---
 
@@ -223,16 +230,17 @@ OnlyOffice 8.2.0+ 到 9.x
 参考：
 - `ONLYOFFICE/server`（开源，MIT）— 协议实现参考
 
-### 路径 C：升级到 v8.1.1（最后一个无 code.js 版本）
+### 路径 C：升级到 v8.1.1（❌ 已验证失败）
 
 据 sdkjs commit 分析，`v8.1.1`（2024-07-17）是最后一个无 `code.js` 的版本（app.js 仍为单体包），理论上沿用 7.x 的离线架构。
 
-**操作步骤：**
-1. 从 GitHub Release 下载 Linux Desktop Editors v8.1.1 tarball
-2. 确认 `app.js` 大小（预期 ~5MB）且无 `code.js`
-3. 提取 `web-apps/` 和 `sdkjs/` 目录替换 `public/`
+**实际测试结果（2026-06-14）：**
+- 下载 Linux Desktop Editors v8.1.1 tarball，提取并替换 `public/web-apps/` 和 `public/sdkjs/`
+- 浏览器网络面板观察到请求：`/doc/{key}/c/?shardkey=...&EIO=4&transport=polling` → 404
+- **结论：v8.1.1 仍依赖 socket.io**，与无 `code.js` 无关
+- 已用 `git checkout main -- public/web-apps public/sdkjs` 回滚到 7.4.1
 
-**风险：** 未经验证，需实际下载确认。
+**教训：** 无 `code.js` ≠ 可离线。socket.io 依赖位于 `sdk-all-min.js`，与 `code.js` 是否存在无关。
 
 ### 路径 D：Desktop tarball + 正确 AscDesktopEditor Mock（重新评估）
 
