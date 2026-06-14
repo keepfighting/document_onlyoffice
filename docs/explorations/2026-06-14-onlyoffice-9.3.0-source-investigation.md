@@ -435,3 +435,4 @@ async function initDocumentAfterReady() {
 - [升级探索总览](./2026-05-31-onlyoffice-9.3.0-upgrade.md)
 - [Desktop Mode Mock 详细记录](./2026-05-31-onlyoffice-desktop-mode-mock.md)
 - [离线能力架构对比](./2026-06-07-offline-architecture-comparison.md)
+- [Codex 复核：OnlyOffice 9.3.0 升级探索结论](./2026-06-14-codex-9.3.0-upgrade-review.md)
