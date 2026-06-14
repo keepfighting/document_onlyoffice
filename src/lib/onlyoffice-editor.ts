@@ -393,9 +393,6 @@ export function createEditorInstance(config: {
 
     try {
       window.editor = new window.DocsAPI.DocEditor('iframe', {
-        // Use file:// as parentOrigin so the iframe activates the Desktop-mode
-        // openDocumentFromBinary handler (which is gated on parentOrigin==="file://").
-        parentOrigin: 'file://',
         document: {
           title: fileName,
           url: fileName, // Use file name as identifier
@@ -426,36 +423,16 @@ export function createEditorInstance(config: {
         },
         events: {
           onAppReady: () => {
-            // Set media resources
             if (mediaUrls) {
               window.editor?.sendCommand({
                 command: 'asc_setImageUrls',
                 data: { urls: mediaUrls },
               });
             }
-
-            // In Desktop mode, the Vite mock's LocalStartOpen already called
-            // asc_openDocumentFromBytes directly and set __localDocumentLoaded.
-            // Skip openDocument() to avoid double-loading.
-            if ((window as unknown as Record<string, unknown>).__localDocumentLoaded) {
-              (window as unknown as Record<string, unknown>).__localDocumentLoaded = false;
-              return;
-            }
-            // Load document content via openDocument (9.3.0+).
-            const openDoc = (window.editor as unknown as Record<string, unknown>)?.openDocument;
-            if (typeof openDoc === 'function') {
-              let src: Uint8Array;
-              if (binData instanceof Uint8Array) {
-                src = binData;
-              } else if (binData instanceof ArrayBuffer) {
-                src = new Uint8Array(binData);
-              } else {
-                src = new Uint8Array(0);
-              }
-              const copy = new Uint8Array(src.byteLength);
-              copy.set(src);
-              (openDoc as (data: Uint8Array) => void)(copy);
-            }
+            window.editor?.sendCommand({
+              command: 'asc_openDocument',
+              data: { buf: binData },
+            });
           },
           onDocumentReady: () => {
             console.log(`${t('documentLoaded')}${fileName}`);

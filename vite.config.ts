@@ -355,7 +355,7 @@ export default defineConfig({
   root: 'pages',
   base: './',
   publicDir: resolve(__dirname, 'public'),
-  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock(), injectCriticalStyle(), injectGtag()],
+  plugins: [onlyofficeVersionRewrite(), injectCriticalStyle(), injectGtag()],
   server: {
     fs: {
       // Allow Vite to serve src/ which lives outside the pages/ root
