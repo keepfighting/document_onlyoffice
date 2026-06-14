@@ -210,7 +210,8 @@ const zhLandingPages: Record<string, LandingPage> = {
   '/': {
     eyebrow: '私密 Office 编辑，无需文档服务器',
     title: '在浏览器中本地编辑文档',
-    description: '在浏览器中直接编辑 DOCX、XLSX、PPTX 和 CSV 文件，文件始终留在设备上，无需上传、无需账号、无需文档服务器。',
+    description:
+      '在浏览器中直接编辑 DOCX、XLSX、PPTX 和 CSV 文件，文件始终留在设备上，无需上传、无需账号、无需文档服务器。',
     badge: '多格式支持',
     sections: [
       {
@@ -230,7 +231,8 @@ const zhLandingPages: Record<string, LandingPage> = {
   '/private-document-editor/': {
     eyebrow: '浏览器内私密文档编辑',
     title: '无需上传的隐私文档编辑器',
-    description: '在本地优先的浏览器编辑器中打开 Office 文档，编辑 Word、Excel、PowerPoint 和 CSV 文件，无需将私密文件发送到托管服务。',
+    description:
+      '在本地优先的浏览器编辑器中打开 Office 文档，编辑 Word、Excel、PowerPoint 和 CSV 文件，无需将私密文件发送到托管服务。',
     badge: '无需上传',
     sections: [
       {
@@ -330,7 +332,8 @@ const zhLandingPages: Record<string, LandingPage> = {
   '/onlyoffice-wasm/': {
     eyebrow: '静态 Web 应用中的 OnlyOffice',
     title: 'OnlyOffice WASM 文档编辑器',
-    description: 'OnlyOffice web apps 和 x2t WebAssembly 转换的纯前端集成方案，无需运行 Document Server 即可体验本地 Office 编辑。',
+    description:
+      'OnlyOffice web apps 和 x2t WebAssembly 转换的纯前端集成方案，无需运行 Document Server 即可体验本地 Office 编辑。',
     badge: 'WASM 架构',
     sections: [
       {
@@ -370,7 +373,8 @@ const zhLandingPages: Record<string, LandingPage> = {
   '/self-hosted-document-editor/': {
     eyebrow: '静态托管或 Docker',
     title: '自部署文档编辑器',
-    description: '在自己的基础设施上运行基于浏览器的 Office 编辑器，部署为静态文件或 Docker 容器，支持可选的 HTTPS 和基础认证。',
+    description:
+      '在自己的基础设施上运行基于浏览器的 Office 编辑器，部署为静态文件或 Docker 容器，支持可选的 HTTPS 和基础认证。',
     badge: '自部署',
     sections: [
       {
@@ -416,7 +420,7 @@ const normalizePathname = () => {
 const getLandingPage = () => {
   const lang = getLanguage();
   const key = normalizePathname();
-  return (allLandingPages[lang]?.[key] ?? allLandingPages[lang]?.['/']) ?? landingPages['/'];
+  return allLandingPages[lang]?.[key] ?? allLandingPages[lang]?.['/'] ?? landingPages['/'];
 };
 
 const getSiteRoot = () => {
@@ -793,12 +797,30 @@ export const createLandingNav = (): void => {
     a.className = 'top-link';
     a.href = href;
     a.textContent = text;
-    if (external) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    if (external) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
     return a;
   };
 
-  nav.appendChild(createTopLink('GitHub', 'https://github.com/ranuts/document', true));
-  nav.appendChild(createTopLink('Issues', 'https://github.com/ranuts/document/issues', true));
+  const root = getSiteRoot();
+
+  const brand = document.createElement('a');
+  brand.className = 'top-brand';
+  brand.href = root;
+  brand.textContent = 'ByBrowser';
+  nav.appendChild(brand);
+
+  const navLinks = document.createElement('div');
+  navLinks.className = 'top-links';
+  navLinks.appendChild(createTopLink('DOCX', `${root}docx-editor/`));
+  navLinks.appendChild(createTopLink('XLSX', `${root}xlsx-editor/`));
+  navLinks.appendChild(createTopLink('PPTX', `${root}pptx-editor/`));
+  navLinks.appendChild(createTopLink('CSV', `${root}csv-editor/`));
+  navLinks.appendChild(createTopLink('Embed', `${root}embed-document-editor/`));
+  navLinks.appendChild(createTopLink('GitHub', 'https://github.com/ranuts/document', true));
+  nav.appendChild(navLinks);
 
   // Globe icon + select language picker
   const picker = document.createElement('div');
@@ -846,11 +868,37 @@ export const createLandingNav = (): void => {
   document.body.appendChild(nav);
 };
 
+const getLandingWorkbenchCopy = () => {
+  const isZh = getLanguage() === LanguageCode.ZH;
+  return {
+    panelTitle: isZh ? '本地文件工作台' : 'Local file workbench',
+    panelMeta: isZh ? '文件来源: 你的设备' : 'File source: your device',
+    processingTitle: isZh ? '处理路径' : 'Processing path',
+    processingSteps: isZh
+      ? ['浏览器读取文件', 'WASM 转换', 'OnlyOffice 编辑', '下载保存']
+      : ['Browser reads file', 'WASM conversion', 'OnlyOffice editing', 'Download to save'],
+    privacyTitle: isZh ? '隐私状态' : 'Privacy state',
+    privacyItems: isZh
+      ? ['上传: 关闭', '账号: 不需要', '文档服务器: 不需要']
+      : ['Upload: off', 'Account: not required', 'Document server: not required'],
+    formatsTitle: isZh ? '支持格式' : 'Supported formats',
+    linksTitle: isZh ? '选择一个入口' : 'Choose an entry point',
+  };
+};
+
+const landingFormats = [
+  { label: 'DOCX', tone: 'word' },
+  { label: 'XLSX', tone: 'sheet' },
+  { label: 'PPTX', tone: 'slide' },
+  { label: 'CSV', tone: 'csv' },
+];
+
 // Create and append the control panel
 export const createControlPanel = (): void => {
   document.querySelector('#seo-content')?.remove();
 
   const page = getLandingPage();
+  const workbench = getLandingWorkbenchCopy();
   updatePageMeta(page);
 
   // Create control panel container - centered in viewport
@@ -893,7 +941,30 @@ export const createControlPanel = (): void => {
   content.appendChild(trust);
 
   const panel = document.createElement('div');
-  panel.className = 'landing-action-panel';
+  panel.className = 'landing-workbench';
+
+  const panelTop = document.createElement('div');
+  panelTop.className = 'workbench-topline';
+  const panelTitle = document.createElement('p');
+  panelTitle.className = 'workbench-title';
+  panelTitle.textContent = workbench.panelTitle;
+  const panelMeta = document.createElement('p');
+  panelMeta.className = 'workbench-meta';
+  panelMeta.textContent = workbench.panelMeta;
+  panelTop.appendChild(panelTitle);
+  panelTop.appendChild(panelMeta);
+  panel.appendChild(panelTop);
+
+  const formatStrip = document.createElement('div');
+  formatStrip.className = 'format-strip';
+  formatStrip.setAttribute('aria-label', workbench.formatsTitle);
+  landingFormats.forEach((format) => {
+    const pill = document.createElement('span');
+    pill.className = `format-pill format-pill-${format.tone}`;
+    pill.textContent = format.label;
+    formatStrip.appendChild(pill);
+  });
+  panel.appendChild(formatStrip);
 
   // Create button group - centered horizontally with wrap support
   const buttonGroup = document.createElement('div');
@@ -909,12 +980,10 @@ export const createControlPanel = (): void => {
     button.className = 'control-panel-button';
 
     button.addEventListener('mouseenter', () => {
-      button.style.color = '#667eea';
-      button.style.transform = 'scale(1.05)';
+      button.style.color = '#0f5eb8';
     });
     button.addEventListener('mouseleave', () => {
-      button.style.color = '#333';
-      button.style.transform = 'scale(1)';
+      button.style.color = '#15171c';
     });
     button.addEventListener('click', onClick);
 
@@ -978,6 +1047,30 @@ export const createControlPanel = (): void => {
   hint.textContent = t('landingHint');
   panel.appendChild(hint);
 
+  const workbenchGrid = document.createElement('div');
+  workbenchGrid.className = 'workbench-grid';
+
+  const createWorkbenchBlock = (title: string, items: string[]) => {
+    const block = document.createElement('div');
+    block.className = 'workbench-block';
+    const blockTitle = document.createElement('p');
+    blockTitle.className = 'workbench-block-title';
+    blockTitle.textContent = title;
+    block.appendChild(blockTitle);
+    const list = document.createElement('ul');
+    items.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      list.appendChild(li);
+    });
+    block.appendChild(list);
+    return block;
+  };
+
+  workbenchGrid.appendChild(createWorkbenchBlock(workbench.processingTitle, workbench.processingSteps));
+  workbenchGrid.appendChild(createWorkbenchBlock(workbench.privacyTitle, workbench.privacyItems));
+  panel.appendChild(workbenchGrid);
+
   hero.appendChild(content);
   hero.appendChild(panel);
 
@@ -997,17 +1090,22 @@ export const createControlPanel = (): void => {
 
   const links = document.createElement('nav');
   links.className = 'landing-links';
+  links.setAttribute('aria-label', workbench.linksTitle);
+  const linksTitle = document.createElement('p');
+  linksTitle.className = 'landing-links-title';
+  linksTitle.textContent = workbench.linksTitle;
+  links.appendChild(linksTitle);
   const root = getSiteRoot();
   const navItems: [string, string][] = [
     [t('navPrivateEditor'), `${root}private-document-editor/`],
-    [t('navDocxEditor'),    `${root}docx-editor/`],
-    [t('navXlsxEditor'),   `${root}xlsx-editor/`],
-    [t('navPptxEditor'),   `${root}pptx-editor/`],
-    [t('navCsvEditor'),    `${root}csv-editor/`],
+    [t('navDocxEditor'), `${root}docx-editor/`],
+    [t('navXlsxEditor'), `${root}xlsx-editor/`],
+    [t('navPptxEditor'), `${root}pptx-editor/`],
+    [t('navCsvEditor'), `${root}csv-editor/`],
     [t('navOnlyofficeWasm'), `${root}onlyoffice-wasm/`],
-    [t('navEmbedApi'),     `${root}embed-document-editor/`],
-    [t('navSelfHosted'),   `${root}self-hosted-document-editor/`],
-    ['GitHub',             'https://github.com/ranuts/document'],
+    [t('navEmbedApi'), `${root}embed-document-editor/`],
+    [t('navSelfHosted'), `${root}self-hosted-document-editor/`],
+    ['GitHub', 'https://github.com/ranuts/document'],
   ];
   navItems.forEach(([label, href]) => {
     const link = document.createElement('a');

@@ -431,7 +431,7 @@ export function createEditorInstance(config: {
             }
             window.editor?.sendCommand({
               command: 'asc_openDocument',
-              data: { buf: binData },
+              data: { buf: pendingCopy.buffer as ArrayBuffer },
             });
           },
           onDocumentReady: () => {
