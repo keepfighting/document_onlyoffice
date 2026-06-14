@@ -383,6 +383,14 @@ export function createEditorInstance(config: {
         src = binData;
       } else if (binData instanceof ArrayBuffer) {
         src = new Uint8Array(binData);
+      } else if (typeof binData === 'string' && binData.includes(';')) {
+        // DOCY/XLSY string format: 'DOCY;v5;{byteLen};{base64data}'
+        const base64 = binData.split(';').slice(3).join(';');
+        const binaryStr = atob(base64);
+        src = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          src[i] = binaryStr.charCodeAt(i);
+        }
       } else {
         src = new Uint8Array(0);
       }
@@ -429,10 +437,40 @@ export function createEditorInstance(config: {
                 data: { urls: mediaUrls },
               });
             }
-            window.editor?.sendCommand({
-              command: 'asc_openDocument',
-              data: { buf: binData },
-            });
+            // 9.3.0 Desktop: call asc_openDocumentFromBytes directly on the sdkjs api
+            // object (accessed via the same-origin iframe) to pass the DOCY/XLSY string
+            // exactly as 7.4.1's server-mode sendCommand('asc_openDocument') did.
+            // This bypasses the binary encoding of openDocument() which loses the DOCY
+            // string format and sends raw bytes that 9.3.0 sdkjs rejects.
+            //
+            // MOa=true (patched in CreateEditorApi) forces BRj (server-mode Shc) which
+            // parses the DOCY string: split ';', base64-decode part[3], render.
+            //
+            // 7.4.1 fallback: sendCommand('asc_openDocument') if openDocument absent.
+            const editorAny = window.editor as any;
+            if (typeof editorAny?.openDocument === 'function') {
+              // 9.3.0: reach into the iframe to call asc_openDocumentFromBytes directly
+              const iframeEl = (document.getElementById('iframe') as HTMLElement | null)
+                ?.querySelector('iframe') as HTMLIFrameElement | null;
+              const api = (iframeEl?.contentWindow as any)?.__desktopApi;
+              if (api && typeof api.asc_openDocumentFromBytes === 'function' && binData) {
+                // binData is DOCY string for new docs, or the raw BlobPart for existing docs
+                if (typeof binData === 'string') {
+                  api.asc_openDocumentFromBytes(binData);
+                } else if (pendingCopy.byteLength > 0) {
+                  api.asc_openDocumentFromBytes(pendingCopy);
+                }
+              } else if (pendingCopy.byteLength > 0) {
+                // Fallback: binary path via openDocument postMessage
+                editorAny.openDocument(pendingCopy);
+              }
+            } else {
+              // 7.4.1 server mode
+              window.editor?.sendCommand({
+                command: 'asc_openDocument',
+                data: { buf: binData },
+              });
+            }
           },
           onDocumentReady: () => {
             console.log(`${t('documentLoaded')}${fileName}`);

@@ -206,6 +206,160 @@ OnlyOffice 8.2.0+ 到 9.x
 
 ---
 
+## Chrome DevTools MCP 验证：`asc_openDocumentFromBytes` 输入格式
+
+- **验证日期：** 2026-06-14
+- **本地页面：** `http://127.0.0.1:5177/`
+- **当前 sdkjs：** `public/sdkjs/word/sdk-all-min.js`，`Version: 9.3.0 (build:140)`
+
+### 工具状态
+
+尝试使用 Chrome DevTools MCP 直接打开本地页面时，MCP 专用 Chrome profile 已被一个遗留实例占用：
+
+```
+The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile.
+Use --isolated to run multiple browser instances.
+```
+
+同时，Codex Chrome Extension 通道也不可用，但排查结果显示普通 Chrome 已运行，扩展和 native host 均安装且启用。由于无法在本轮可靠接管 DevTools 页面，以下结论采用两类证据交叉确认：
+
+1. 源码定位：`sdk-all-min.js` 中 `asc_openDocumentFromBytes` 的实际实现；
+2. 等价运行时探针：按 9.3.0 的 `AscCommon.a9c(data, "DOCY")` 逻辑，对当前 `empty_bin.ts` 中的 `DOCY;v5;7372;...` 输入做格式判定。
+
+### 关键源码路径
+
+9.3.0 中 `asc_openDocumentFromBytes` 并不是“任意 bytes 打开文档”的通用入口，它只是包装输入并调用 `Shc`：
+
+```javascript
+d.prototype.r1i = function(r) {
+  var t = new AscCommon.WYc;
+  t.data = r;
+  t.PQb = AscCommon.a9c(t.data, AscCommon.SHa.xH);
+  this.Shc(t);
+};
+q.asc_openDocumentFromBytes = q.r1i;
+```
+
+其中：
+
+- `AscCommon.SHa.xH` 是 `"DOCY"`；
+- `AscCommon.a9c(data, "DOCY")` 会逐 byte 比较 `data[0..3]` 是否等于 `D/O/C/Y` 的 char code；
+- 因此输入必须像 byte array 一样暴露数值索引，普通 JS string 不满足该比较方式。
+
+### 输入格式探针结果
+
+对当前 `src/lib/empty_bin.ts` 的 Word 空文档模板：
+
+```
+DOCY;v5;7372;{base64}
+```
+
+执行等价探针后的结果：
+
+| 输入 | 长度 | 前 4 字节/字符 | `a9c(data, "DOCY")` | 结论 |
+|------|------|----------------|---------------------|------|
+| JS string：完整 `DOCY;v5;7372;...` | 9845 | `DOCY` | `false` | string 索引返回字符，不是数字 char code，不能通过 9.3 的签名判断 |
+| `Uint8Array(atob(base64))`：当前传入的 7372 bytes | 7372 | `[9, 0, 128, 2]` | `false` | 解码后丢失 `DOCY;v5;7372;` envelope，必然不被识别为 DOCY |
+| `TextEncoder().encode("DOCY;v5;7372;...")` | 9845 | `[68, 79, 67, 89]` | `true` | 只有“完整 envelope 的 UTF-8 bytes”能通过 DOCY 签名检查 |
+| 普通 `.docx` ZIP bytes | 8+ | `PK\\x03\\x04` | `false` | raw OOXML ZIP 不属于 `asc_openDocumentFromBytes` 的 DOCY 分支 |
+
+### 对当前实现的影响
+
+当前 `src/lib/onlyoffice-editor.ts` 有两条 9.3 打开路径：
+
+1. 新建文档时，把 `DOCY;v5;7372;{base64}` 解码成 7372 bytes 存到 `window.__pendingBinary`；
+2. `onAppReady` 中如果拿到 iframe 的 `__desktopApi.asc_openDocumentFromBytes`，对 string 直接传 string，否则传 `pendingCopy`。
+
+这两条都存在问题：
+
+- **传 string：** 9.3 的 `a9c` 对 string 返回 `false`；
+- **传 decoded 7372 bytes：** 丢掉了 `DOCY` envelope，`a9c` 也返回 `false`；
+- 因此看到 `Asc.c_oAscError.ID.ConvertationOpenFormat` 和 generic `errorInconsistentExt` 是符合源码逻辑的，不是偶发 UI 报错。
+
+### 结论
+
+`asc_openDocumentFromBytes` 在 9.3.0 中至少要求输入能通过 `DOCY` byte 签名检查；当前项目的 7.4.1 `DOCY;v5` 空文档数据与调用方式都不满足 9.3 的直接打开路径。
+
+下一步不应继续把 `asc_openDocumentFromBytes` 当作万能入口反复试参，而应二选一：
+
+1. **如果继续实验 direct bytes 路径：** 先用 9.3 对应的转换链生成 9.3 可识别的 DOCY envelope，并以 `Uint8Array(TextEncoder(...))` 传入；但 7.4.1 的 `DOCY;v5` 即使通过签名，也仍可能在后续解析阶段因内部格式版本不兼容失败。
+2. **更合理的 9.3 路径：** 回到 9.x 的 server-mode 协议，做最小 `window.io`/socket.io mock，通过 `auth` + `documentOpen` 把 OOXML Blob URL 或服务端期望的数据对象交给 9.3 初始化流程，而不是绕过协议直接调用 `asc_openDocumentFromBytes`。
+
+---
+
+## 资产来源与缺口：不是简单缺一个 `bin.ts`
+
+当前升级问题容易被简化为“缺少 9.3 版本的 wasm 和 bin.ts”。更准确的拆分如下：
+
+### 1. `sdkjs` / `web-apps`
+
+主分支可用的是旧版 standalone 前端包。仓库文档里曾写作 `7.5.0`，但当前文件头和历史调查显示实际核心版本更接近 `7.4.1 (build:1)`。
+
+9.3 的 `sdkjs` / `web-apps` 已经可以获取，来源包括：
+
+```bash
+docker run -d --name oo onlyoffice/documentserver:9.3.0
+docker cp oo:/var/www/onlyoffice/documentserver/web-apps ./public/web-apps
+docker cp oo:/var/www/onlyoffice/documentserver/sdkjs ./public/sdkjs
+docker rm -f oo
+```
+
+或从 Desktop Editors 的 tarball / dmg 中提取。但这些 9.x 产物默认是 server-mode 架构，不等价于 7.x 的纯前端 standalone 包。
+
+### 2. `x2t.wasm`
+
+项目内已有：
+
+```text
+public/wasm/x2t/x2t.js
+public/wasm/x2t/x2t.wasm
+```
+
+历史记录显示它最早随 `29a472a feat: add document preview editor` 引入，后续有压缩格式、加载方式和一次 9.3 升级提交调整。它不是 Docker `web-apps/sdkjs` 自动带出的资源，而是单独处理的转换器。
+
+项目文档里的获取说明是：
+
+```text
+x2t WASM 需单独处理（社区维护）
+参考：https://github.com/cryptpad/onlyoffice-x2t-wasm
+```
+
+因此，若要严格对齐 9.3，需要确认当前 `public/wasm/x2t` 是否真的是基于 9.3 x2t 构建，而不是旧版本或社区混合版本。
+
+### 3. `empty_bin.ts`
+
+当前空文档模板在 `src/lib/empty_bin.ts`：
+
+```text
+.docx -> DOCY;v5;7372;...
+.xlsx -> XLSY;v2;6160;...
+.pptx -> PPTY;v1;47829;...
+```
+
+这些是旧版 OnlyOffice 内部格式模板，不是普通 OOXML 文件，也不是 x2t wasm 自动生成的源码文件。
+
+9.3 静态包中已经能看到新版内部模板迹象，例如 slide 侧出现 `PPTY;v10;...`。这说明 9.3 的内部空文档模板版本已经变化，当前 `DOCY;v5` / `XLSY;v2` / `PPTY;v1` 不能假设继续兼容。
+
+获取 9.3 empty template 的可行方式：
+
+1. 从 9.3 的 `sdkjs` / `web-apps` 构建产物里搜索 `DOCY;`、`XLSY;`、`PPTY;` 并提取对应空文档常量；
+2. 用 9.3 同代的 x2t 转换链生成空 `.docx/.xlsx/.pptx` 的内部格式；
+3. 从 ONLYOFFICE 源码构建流程中定位生成 empty template 的脚本或常量来源。
+
+### 判断
+
+缺口不只是“缺少 9.3 wasm 和 bin.ts”，而是三件事需要同代匹配：
+
+| 资产 | 当前状态 | 9.3 升级要求 |
+|------|----------|--------------|
+| `sdkjs/web-apps` | 7.x standalone 可用；9.3 已能提取但走 server-mode | 需要决定走 server-mode mock，还是找到/构建真正 standalone 路径 |
+| `x2t.wasm` | 已存在，来源为单独引入/社区构建链 | 需要确认是否与 9.3 内部格式同代 |
+| `empty_bin.ts` | 旧版 `DOCY;v5` / `XLSY;v2` / `PPTY;v1` | 需要替换为 9.3 同代 empty template，或改为由 9.3 x2t 动态生成 |
+
+即使补齐 9.3 的 `x2t.wasm` 和 empty template，也只能解决输入格式兼容的一部分；9.3 编辑器初始化路径默认依赖 server-mode/socket.io 仍然是主问题。
+
+---
+
 ## 当前可行路径
 
 ### 路径 A：维持 7.5.0（立即可行，推荐）
