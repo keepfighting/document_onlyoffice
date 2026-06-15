@@ -17,6 +17,12 @@ function onlyofficeVersionRewrite(): Plugin {
           res.end();
           return;
         }
+        if (req.url && /(^|\/)document_editor_service_worker\.js(?:\?|$)/.test(req.url)) {
+          res.statusCode = 404;
+          res.setHeader('Cache-Control', 'no-store');
+          res.end();
+          return;
+        }
         next();
       });
     },
@@ -112,6 +118,12 @@ function onlyofficeDesktopMock(): Plugin {
       'msmincho.ttc':'NotoSansJP-VF.ttf',
       'msgothic.ttc':'NotoSansJP-VF.ttf',
       'malgun.ttf':'NotoSansKR-VF.ttf',
+      'symbol.ttf':'DejaVuSans.ttf',
+      'wingding.ttf':'DejaVuSans.ttf',
+      'wingdng2.ttf':'DejaVuSans.ttf',
+      'wingdng3.ttf':'DejaVuSans.ttf',
+      'webdings.ttf':'DejaVuSans.ttf',
+      'marlett.ttf':'DejaVuSans.ttf',
     };
     var origOpen = window.XMLHttpRequest.prototype.open;
     window.XMLHttpRequest.prototype.open = function(method, url) {
@@ -140,6 +152,235 @@ function onlyofficeDesktopMock(): Plugin {
       if (opts && typeof opts.msg === 'string' && opts.msg.indexOf('Connection is lost') !== -1) return;
       return orig.apply(ui, arguments);
     };
+  })();
+
+  // 9.3.0 Desktop startup can reach controller delayed hooks before those
+  // controllers receive mode. Seed offline defaults read on content-ready.
+  (function seedControllerModes() {
+    var de = window.DE;
+    if (!de || typeof de.getController !== 'function') {
+      setTimeout(seedControllerModes, 100);
+      return;
+    }
+    var offlineMode = {
+      canCoAuthoring: false,
+      canViewComments: false,
+      canChat: false,
+      canUseHistory: false,
+      canUseSelectHandTools: false,
+      canBack: false,
+      canBrandingExt: false,
+      canChangeCoAuthoring: false,
+      canCloseEditor: false,
+      canComments: false,
+      canCopy: true,
+      canCreateNew: false,
+      canDeleteComments: false,
+      canDownload: false,
+      canDownloadOrigin: false,
+      canEdit: true,
+      canEditComments: false,
+      canEditStyles: true,
+      canFeatureContentControl: false,
+      canFeatureForms: false,
+      canFillForms: false,
+      canHelp: false,
+      canLicense: false,
+      canLiveView: false,
+      canOpenRecent: false,
+      canPlugins: false,
+      canPreviewPrint: false,
+      canPrint: false,
+      canRename: false,
+      canRequestCreateNew: false,
+      canRequestEditRights: false,
+      canRequestInsertImage: false,
+      canRequestMailMergeRecipients: false,
+      canRequestOpen: false,
+      canRequestReferenceData: false,
+      canRequestReferenceSource: false,
+      canRequestSaveAs: false,
+      canRequestSelectSpreadsheet: false,
+      canRequestSendNotify: false,
+      canRequestSharingSettings: false,
+      canRequestUsers: false,
+      canReview: false,
+      canSaveDocumentToBinary: false,
+      canSaveToFile: false,
+      canSendEmailAddresses: false,
+      canSuggest: false,
+      canSwitchToMobile: false,
+      canUseCommentPermissions: false,
+      canUseReviewPermissions: false,
+      canUseThumbnails: false,
+      canUseViwerNavigation: false,
+      isLightVersion: false,
+      isDisconnected: false,
+      isEdit: true,
+      isReviewOnly: false,
+      isPDFForm: false,
+      isFormCreator: false,
+      user: {
+        anonymous: true,
+        id: 'desktop-mock-user',
+        fullname: 'Anonymous',
+        username: 'Anonymous',
+        guest: true,
+        roles: []
+      }
+    };
+
+    function applyOfflineDefaults(target) {
+      if (!target) return;
+      Object.keys(offlineMode).forEach(function(key) {
+        if (target[key] === undefined) target[key] = offlineMode[key];
+      });
+      if (!target.customization) target.customization = {};
+    }
+
+    var main = de.getController('Main');
+    if (main) {
+      main.appOptions = main.appOptions || {};
+      applyOfflineDefaults(main.appOptions);
+    }
+
+    [
+      'LeftMenu',
+      'Toolbar',
+      'Statusbar',
+      'RightMenu',
+      'DocumentHolder',
+      'Common.Controllers.ReviewChanges',
+      'Common.Controllers.Comments',
+      'Common.Controllers.Plugins',
+      'Navigation'
+    ].forEach(function(name) {
+      var ctrl = de.getController(name);
+      if (ctrl && !ctrl.mode) {
+        ctrl.mode = offlineMode;
+        log(name + ' mode seeded');
+      }
+      if (ctrl && !ctrl.appConfig) {
+        ctrl.appConfig = offlineMode;
+        log(name + ' appConfig seeded');
+      }
+      if (ctrl && !ctrl.appOptions) {
+        ctrl.appOptions = main && main.appOptions ? main.appOptions : offlineMode;
+        log(name + ' appOptions seeded');
+      }
+      ['toolbar', 'statusbar', 'leftMenu', 'rightMenu', 'documentHolder'].forEach(function(prop) {
+        if (ctrl && ctrl[prop] && !ctrl[prop].mode) {
+          ctrl[prop].mode = offlineMode;
+          log(name + '.' + prop + ' mode seeded');
+        }
+        if (ctrl && ctrl[prop] && !ctrl[prop].appConfig) {
+          ctrl[prop].appConfig = offlineMode;
+          log(name + '.' + prop + ' appConfig seeded');
+        }
+      });
+    });
+    var toolbarCtrl = de.getController('Toolbar');
+    if (toolbarCtrl && !toolbarCtrl.__desktopDelayedGuarded && typeof toolbarCtrl.createDelayedElements === 'function') {
+      toolbarCtrl.__desktopDelayedGuarded = true;
+      toolbarCtrl.createDelayedElements = function() {
+        log('Toolbar.createDelayedElements skipped: desktop mock has no full toolbar tree');
+        return this;
+      };
+      log('Toolbar.createDelayedElements guarded');
+    }
+    if (toolbarCtrl && toolbarCtrl.toolbar && !toolbarCtrl.toolbar.__desktopSetExtraGuarded && typeof toolbarCtrl.toolbar.setExtra === 'function') {
+      toolbarCtrl.toolbar.__desktopSetExtraGuarded = true;
+      var setExtra = toolbarCtrl.toolbar.setExtra;
+      toolbarCtrl.toolbar.setExtra = function(pos, html) {
+        if (!this.$layout) {
+          log('Toolbar.setExtra skipped: layout not ready');
+          return;
+        }
+        return setExtra.apply(this, arguments);
+      };
+      log('Toolbar.setExtra guarded');
+    }
+    if (toolbarCtrl && !toolbarCtrl.__desktopSetLanguagesGuarded && typeof toolbarCtrl.setLanguages === 'function') {
+      toolbarCtrl.__desktopSetLanguagesGuarded = true;
+      var ctrlSetLanguages = toolbarCtrl.setLanguages;
+      toolbarCtrl.setLanguages = function() {
+        if (!this.toolbar || !this.toolbar.btnsDocLang) {
+          log('Toolbar.setLanguages skipped: language buttons not rendered');
+          return this;
+        }
+        return ctrlSetLanguages.apply(this, arguments);
+      };
+      log('Toolbar.setLanguages guarded');
+    }
+    if (toolbarCtrl && toolbarCtrl.toolbar && !toolbarCtrl.toolbar.__desktopSetLanguagesGuarded && typeof toolbarCtrl.toolbar.setLanguages === 'function') {
+      toolbarCtrl.toolbar.__desktopSetLanguagesGuarded = true;
+      var viewSetLanguages = toolbarCtrl.toolbar.setLanguages;
+      toolbarCtrl.toolbar.setLanguages = function() {
+        if (!this.btnsDocLang) {
+          log('Toolbar.view.setLanguages skipped: language buttons not rendered');
+          return this;
+        }
+        return viewSetLanguages.apply(this, arguments);
+      };
+      log('Toolbar.view.setLanguages guarded');
+    }
+    var viewTab = de.getController('ViewTab');
+    if (viewTab && !viewTab.view) {
+      viewTab.view = { lockedControls: [] };
+      log('ViewTab view seeded');
+    }
+    var viewport = de.getController('Viewport');
+    if (viewport && viewport.header && viewport.header.options) {
+      if (!viewport.header.options.userName) {
+        viewport.header.options.userName = offlineMode.user.fullname;
+        log('Header userName seeded');
+      }
+      if (!viewport.header.options.currentUserId) {
+        viewport.header.options.currentUserId = offlineMode.user.id;
+        log('Header currentUserId seeded');
+      }
+    }
+    setTimeout(seedControllerModes, 250);
+  })();
+
+  (function patchUiControllerGuards() {
+    var de = window.DE;
+    if (!de || typeof de.getController !== 'function') {
+      setTimeout(patchUiControllerGuards, 100);
+      return;
+    }
+    var viewTab = de.getController('ViewTab');
+    if (viewTab && !viewTab.__desktopReadyGuarded && typeof viewTab.onDocumentReady === 'function') {
+      viewTab.__desktopReadyGuarded = true;
+      var onDocumentReady = viewTab.onDocumentReady;
+      viewTab.onDocumentReady = function() {
+        if (!this.view || !this.view.lockedControls) {
+          log('ViewTab.onDocumentReady skipped: view not ready');
+          return;
+        }
+        return onDocumentReady.apply(this, arguments);
+      };
+      log('ViewTab.onDocumentReady guarded');
+    }
+    var main = de.getController('Main');
+    if (main && !main.__desktopSetLanguagesGuarded && typeof main.setLanguages === 'function') {
+      main.__desktopSetLanguagesGuarded = true;
+      var mainSetLanguages = main.setLanguages;
+      main.setLanguages = function() {
+        try {
+          return mainSetLanguages.apply(this, arguments);
+        } catch(e) {
+          var msg = (e && e.message) || String(e);
+          if (msg.indexOf('btnsDocLang') !== -1) {
+            log('Main.setLanguages skipped: language buttons not rendered');
+            return this;
+          }
+          throw e;
+        }
+      };
+      log('Main.setLanguages guarded');
+    }
+    setTimeout(patchUiControllerGuards, 25);
   })();
 
   // Provide theme info so index.html Desktop init doesn't crash on uitheme.
@@ -172,9 +413,31 @@ function onlyofficeDesktopMock(): Plugin {
 
       api.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
       api.asc_registerCallback('asc_onConnectionStateChanged', function(){});
+
+      var tries = 0;
+      var offlineOpenTimer = setInterval(function() {
+        tries++;
+        try {
+          var hasModel = typeof api.get_ContentCount === 'function' && api.get_ContentCount() > 0;
+          if (hasModel && api.Cvc && api.I0c === false && typeof api.Aqg === 'function') {
+            clearInterval(offlineOpenTimer);
+            log('Aqg offline apply');
+            api.Aqg({ offline: true });
+          } else if (tries > 80 || api.Fia === true) {
+            clearInterval(offlineOpenTimer);
+          }
+        } catch(e) {
+          log('Aqg offline apply err', (e && e.stack) || (e && e.message) || String(e));
+          clearInterval(offlineOpenTimer);
+        }
+      }, 250);
     },
 
     SetDocumentName: function(name) { log('SetDocumentName', name); },
+    LocalFileRecents: function() { log('LocalFileRecents'); },
+    onDocumentModifiedChanged: function(modified) {
+      log('onDocumentModifiedChanged', modified);
+    },
 
     // LocalStartOpen is normally called by the Desktop-mode Shc() override, but with
     // MOa patched to true, Shc() uses BRj() instead and never calls LocalStartOpen().

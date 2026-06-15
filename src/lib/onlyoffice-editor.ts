@@ -5,6 +5,7 @@ import { getOnlyOfficeLang, t } from './i18n';
 import { c_oAscFileType2 } from './file-types';
 import type { BinConversionResult, SaveEvent } from './document-types';
 import { getMimeTypeFromExtension } from './document-utils';
+import { g_sEmpty_ooxml } from './empty_bin';
 
 // Import converter function to avoid circular dependency
 let convertBinToDocumentFn:
@@ -414,6 +415,11 @@ export function createEditorInstance(config: {
         },
         editorConfig: {
           lang: editorLang,
+          canCoAuthoring: false,
+          coEditing: {
+            mode: 'strict',
+            change: false,
+          },
           customization: {
             help: false,
             about: false,
@@ -437,32 +443,38 @@ export function createEditorInstance(config: {
                 data: { urls: mediaUrls },
               });
             }
-            // 9.3.0 Desktop: call asc_openDocumentFromBytes directly on the sdkjs api
-            // object (accessed via the same-origin iframe) to pass the DOCY/XLSY string
-            // exactly as 7.4.1's server-mode sendCommand('asc_openDocument') did.
-            // This bypasses the binary encoding of openDocument() which loses the DOCY
-            // string format and sends raw bytes that 9.3.0 sdkjs rejects.
-            //
-            // MOa=true (patched in CreateEditorApi) forces BRj (server-mode Shc) which
-            // parses the DOCY string: split ';', base64-decode part[3], render.
-            //
-            // 7.4.1 fallback: sendCommand('asc_openDocument') if openDocument absent.
             const editorAny = window.editor as any;
             if (typeof editorAny?.openDocument === 'function') {
-              // 9.3.0: reach into the iframe to call asc_openDocumentFromBytes directly
-              const iframeEl = (document.getElementById('iframe') as HTMLElement | null)
-                ?.querySelector('iframe') as HTMLIFrameElement | null;
-              const api = (iframeEl?.contentWindow as any)?.__desktopApi;
-              if (api && typeof api.asc_openDocumentFromBytes === 'function' && binData) {
-                // binData is DOCY string for new docs, or the raw BlobPart for existing docs
+              // 9.3.0 Desktop mock path.
+              // g.prototype.nve (DOCY-string path) is undefined in 9.3.0 — removed.
+              // We must trigger one of the two live branches in g.prototype.Aqb:
+              //   PQb=true  → this.ove()  (DOCY binary starting with magic bytes)
+              //   OOa=true  → this.S_f()  (OOXML ZIP, PK magic → AscCommon.cac=true)
+              // Strategy: pass a minimal OOXML docx/xlsx/pptx ZIP → cac()=true → S_f().
+              const iframeEl = document.querySelector('iframe') as HTMLIFrameElement | null;
+              const iwin = iframeEl?.contentWindow as any;
+              const api = iwin?.__desktopApi;
+              console.log('[OO] onAppReady 9.3.0', {
+                hasIframe: !!iframeEl, hasApi: !!api,
+                binDataType: typeof binData, pendingCopyLen: pendingCopy.byteLength,
+              });
+              if (api && typeof api.asc_openDocumentFromBytes === 'function') {
                 if (typeof binData === 'string') {
-                  api.asc_openDocumentFromBytes(binData);
+                  // New document: binData is a legacy DOCY string from empty_bin.ts.
+                  // Use a minimal OOXML ZIP instead — S_f() handles it correctly in 9.3.0.
+                  const ext = '.' + (fileName.split('.').pop()?.toLowerCase() || 'docx');
+                  const ooxmlB64 = g_sEmpty_ooxml[ext] || g_sEmpty_ooxml['.docx'];
+                  const binaryStr = atob(ooxmlB64);
+                  const ooxmlBytes = new Uint8Array(binaryStr.length);
+                  for (let i = 0; i < binaryStr.length; i++) ooxmlBytes[i] = binaryStr.charCodeAt(i);
+                  console.log('[OO] new doc OOXML ZIP', ext, ooxmlBytes.byteLength, 'bytes, first4=', Array.from(ooxmlBytes.slice(0, 4)));
+                  api.asc_openDocumentFromBytes(ooxmlBytes);
                 } else if (pendingCopy.byteLength > 0) {
                   api.asc_openDocumentFromBytes(pendingCopy);
                 }
-              } else if (pendingCopy.byteLength > 0) {
-                // Fallback: binary path via openDocument postMessage
-                editorAny.openDocument(pendingCopy);
+              } else {
+                console.warn('[OO] __desktopApi unavailable, openDocument binary fallback');
+                if (pendingCopy.byteLength > 0) editorAny.openDocument(pendingCopy);
               }
             } else {
               // 7.4.1 server mode

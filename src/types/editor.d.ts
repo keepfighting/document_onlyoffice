@@ -18,6 +18,11 @@ interface DocEditorConfig {
   };
   editorConfig: {
     lang: string;
+    canCoAuthoring?: boolean;
+    coEditing?: {
+      mode: 'fast' | 'strict';
+      change: boolean;
+    };
     customization: {
       help: boolean;
       about: boolean;
@@ -87,7 +92,7 @@ interface DocEditor {
       urls?: Record<string, string>;
       path?: string;
       imgName?: string;
-      buf?: ArrayBuffer;
+      buf?: ArrayBuffer | string;
       success?: boolean;
       error?: string;
       enabled?: boolean;

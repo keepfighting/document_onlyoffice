@@ -76,8 +76,9 @@ if (documentUrl) {
   }
 }
 
-// Register Service Worker for PWA
-if ('serviceWorker' in navigator) {
+// Register Service Worker for PWA.
+// Keep Vite dev uncached; a stale SW can intercept /src/*.ts as HTML.
+if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('./sw.js')
