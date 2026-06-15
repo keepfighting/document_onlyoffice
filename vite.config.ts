@@ -4,17 +4,48 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 
-// Return 404 for socket.io /doc/ polling. After socket.io's retry backoff
-// (~60s), the SDK fires asc_onCoAuthoringDisconnect and document renders.
-// api.js is patched: ver='' (no hash prefix), parentOrigin="file://".
-function onlyofficeVersionRewrite(): Plugin {
+// Serve a minimal Engine.IO v4 + Socket.IO v4 handshake for OnlyOffice polling.
+//
+// Protocol details:
+//   Engine.IO v4 framing: "{byteLen}:{packet}" where packet = "{eiotype}{data}"
+//     eiotype 0 = open, 4 = message, 6 = noop
+//   Socket.IO v4 runs on top of Engine.IO type 4:
+//     "40{json}"  = namespace CONNECT (json must include socket sid in v4)
+//     "42[...]"   = EVENT
+//
+// First GET (no ?sid): send open-packet + socket.io namespace-connect.
+// Subsequent GETs (?sid=fakesid): send noop so the client keeps polling.
+// POST: acknowledge the client's socket.io frames with "ok".
+//
+// After the handshake the client will POST auth events; we respond "ok" to each.
+// The document is loaded separately via asc_openDocumentFromBytes in onAppReady.
+function onlyofficeEngineIOHandshake(): Plugin {
+  const SID = 'fakesid';
   return {
-    name: 'onlyoffice-version-rewrite',
+    name: 'onlyoffice-engineio-handshake',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.url && /\/doc\/[^/]+\/c\//.test(req.url)) {
-          res.statusCode = 404;
-          res.end();
+          const url = new URL(req.url, 'http://localhost');
+          const hasSid = url.searchParams.has('sid');
+          res.setHeader('Content-Type', 'text/plain; charset=UTF-8');
+          res.setHeader('Cache-Control', 'no-store');
+          if (req.method === 'POST') {
+            // Acknowledge any client-to-server socket.io packets
+            res.end('ok');
+            return;
+          }
+          if (!hasSid) {
+            // First GET: Engine.IO open packet + Socket.IO v4 namespace connect
+            // Socket.IO v4 requires the namespace connect to include {"sid":"..."} json
+            const open = JSON.stringify({ sid: SID, upgrades: [], pingInterval: 25000, pingTimeout: 5000 });
+            const nsConnect = `40{"sid":"${SID}"}`;
+            const body = `${1 + open.length}:0${open}${nsConnect.length}:${nsConnect}`;
+            res.end(body);
+          } else {
+            // Subsequent GETs: Engine.IO noop keeps the long-poll cycle alive
+            res.end('1:6');
+          }
           return;
         }
         if (req.url && /(^|\/)document_editor_service_worker\.js(?:\?|$)/.test(req.url)) {
@@ -29,100 +60,50 @@ function onlyofficeVersionRewrite(): Plugin {
   };
 }
 
-// Inject window.AscDesktopEditor mock into editor index.html responses so
-// 9.3.0 Desktop tarball sdkjs skips socket.io and uses the Desktop code path.
-//
-// Correct Desktop flow (9.3.0):
-//   index.html detects AscDesktopEditor → execCommand("webapps:entry")
-//   app.js loads → execCommand("webapps:features")
-//   sdkjs + app.js ready → preloader:hide → execCommand("editor:onready")
-//   mock responds to editor:onready → Common.Gateway.openDocumentFromBinary(data)
-//   → loadBinary → api.asc_openDocumentFromBytes(bytes) → Shc() → renders
-function onlyofficeDesktopMock(): Plugin {
+// Patch editor index.html in Web Mode (no AscDesktopEditor):
+//  - Rewrite ascdesktop://fonts/ → /fonts/ so the font XHR succeeds
+//  - Suppress "Connection is lost" warning (expected — no real server)
+function onlyofficeWebModePatch(): Plugin {
   const EDITOR_HTML = /\/web-apps\/apps\/(documenteditor|presentationeditor|spreadsheeteditor)\/main\/index\.html/;
-  const MOCK = `<script>
+  const PATCH = `<script>
 (function () {
-  function log() {
-    var a = Array.prototype.slice.call(arguments);
-    var parts = a.map(function(x) {
-      if (typeof x === 'function') return 'fn:' + (x.name || 'anon');
-      if (typeof x !== 'object' || x === null) return String(x).slice(0, 100);
-      try { return 'obj{' + Object.keys(x).slice(0, 8).join(',') + '}'; }
-      catch(e) { return 'obj'; }
-    });
-    console.log('[DE]', parts.join(' | '));
-  }
-
-  // Redirect ascdesktop://fonts/ to our open-source equivalents in public/fonts/.
-  // Unmapped fonts keep ascdesktop:// URL → CORS failure → SDK skips gracefully.
-  (function() {
+  // Redirect ascdesktop://fonts/ to open-source equivalents served from /fonts/.
+  // Only needed when sdkjs still has ascdesktop:// font references; harmless otherwise.
+  (function patchFontUrls() {
     var map = {
-      'arial.ttf':'LiberationSans-Regular.ttf',
-      'arialbd.ttf':'LiberationSans-Bold.ttf',
-      'ariali.ttf':'LiberationSans-Italic.ttf',
-      'arialbi.ttf':'LiberationSans-BoldItalic.ttf',
-      'arialn.ttf':'LiberationSans-Regular.ttf',
-      'arialnb.ttf':'LiberationSans-Bold.ttf',
-      'arialblk.ttf':'LiberationSans-Bold.ttf',
-      'calibri.ttf':'LiberationSans-Regular.ttf',
-      'calibrib.ttf':'LiberationSans-Bold.ttf',
-      'calibrii.ttf':'LiberationSans-Italic.ttf',
-      'calibriz.ttf':'LiberationSans-BoldItalic.ttf',
-      'calibril.ttf':'LiberationSans-Regular.ttf',
-      'candara.ttf':'LiberationSans-Regular.ttf',
-      'candrab.ttf':'LiberationSans-Bold.ttf',
-      'candrai.ttf':'LiberationSans-Italic.ttf',
-      'candrabi.ttf':'LiberationSans-BoldItalic.ttf',
-      'corbel.ttf':'LiberationSans-Regular.ttf',
-      'corbelb.ttf':'LiberationSans-Bold.ttf',
-      'corbeli.ttf':'LiberationSans-Italic.ttf',
-      'corbelbi.ttf':'LiberationSans-BoldItalic.ttf',
-      'helvetica.ttf':'LiberationSans-Regular.ttf',
-      'helveticabd.ttf':'LiberationSans-Bold.ttf',
-      'verdana.ttf':'DejaVuSans.ttf',
-      'verdanab.ttf':'DejaVuSans-Bold.ttf',
-      'verdanai.ttf':'DejaVuSans-Oblique.ttf',
-      'verdanaz.ttf':'DejaVuSans-BoldOblique.ttf',
-      'tahoma.ttf':'DejaVuSans.ttf',
-      'tahomabd.ttf':'DejaVuSans-Bold.ttf',
-      'times.ttf':'DejaVuSans.ttf',
-      'timesbd.ttf':'DejaVuSans-Bold.ttf',
-      'timesi.ttf':'DejaVuSans-Oblique.ttf',
-      'timesbi.ttf':'DejaVuSans-BoldOblique.ttf',
-      'cambria.ttc':'DejaVuSans.ttf',
-      'cambriab.ttf':'DejaVuSans-Bold.ttf',
-      'cambriai.ttf':'DejaVuSans-Oblique.ttf',
-      'cambriaz.ttf':'DejaVuSans-BoldOblique.ttf',
-      'georgia.ttf':'DejaVuSans.ttf',
-      'georgiab.ttf':'DejaVuSans-Bold.ttf',
-      'georgiai.ttf':'DejaVuSans-Oblique.ttf',
-      'georgiaz.ttf':'DejaVuSans-BoldOblique.ttf',
-      'cour.ttf':'DejaVuSansMono.ttf',
-      'courbd.ttf':'DejaVuSansMono-Bold.ttf',
-      'couri.ttf':'DejaVuSansMono-Oblique.ttf',
-      'courbi.ttf':'DejaVuSansMono-BoldOblique.ttf',
-      'consolab.ttf':'DejaVuSansMono-Bold.ttf',
-      'consolai.ttf':'DejaVuSansMono-Oblique.ttf',
-      'consolaz.ttf':'DejaVuSansMono-BoldOblique.ttf',
-      'comic.ttf':'ComicNeue-Regular.ttf',
-      'comicbd.ttf':'ComicNeue-Bold.ttf',
-      'comici.ttf':'ComicNeue-Italic.ttf',
-      'comicz.ttf':'ComicNeue-BoldItalic.ttf',
-      'msyh.ttc':'NotoSansSC-VF.ttf',
-      'msyhbd.ttc':'NotoSansSC-VF.ttf',
-      'msyhl.ttc':'NotoSansSC-VF.ttf',
-      'simsun.ttc':'NotoSansSC-VF.ttf',
-      'simhei.ttf':'NotoSansSC-VF.ttf',
-      'msjh.ttc':'NotoSansTC-VF.ttf',
-      'msjhbd.ttc':'NotoSansTC-VF.ttf',
-      'msmincho.ttc':'NotoSansJP-VF.ttf',
-      'msgothic.ttc':'NotoSansJP-VF.ttf',
-      'malgun.ttf':'NotoSansKR-VF.ttf',
-      'symbol.ttf':'DejaVuSans.ttf',
-      'wingding.ttf':'DejaVuSans.ttf',
-      'wingdng2.ttf':'DejaVuSans.ttf',
-      'wingdng3.ttf':'DejaVuSans.ttf',
-      'webdings.ttf':'DejaVuSans.ttf',
+      'arial.ttf':'LiberationSans-Regular.ttf','arialbd.ttf':'LiberationSans-Bold.ttf',
+      'ariali.ttf':'LiberationSans-Italic.ttf','arialbi.ttf':'LiberationSans-BoldItalic.ttf',
+      'arialn.ttf':'LiberationSans-Regular.ttf','arialnb.ttf':'LiberationSans-Bold.ttf',
+      'arialblk.ttf':'LiberationSans-Bold.ttf','calibri.ttf':'LiberationSans-Regular.ttf',
+      'calibrib.ttf':'LiberationSans-Bold.ttf','calibrii.ttf':'LiberationSans-Italic.ttf',
+      'calibriz.ttf':'LiberationSans-BoldItalic.ttf','calibril.ttf':'LiberationSans-Regular.ttf',
+      'candara.ttf':'LiberationSans-Regular.ttf','candrab.ttf':'LiberationSans-Bold.ttf',
+      'candrai.ttf':'LiberationSans-Italic.ttf','candrabi.ttf':'LiberationSans-BoldItalic.ttf',
+      'corbel.ttf':'LiberationSans-Regular.ttf','corbelb.ttf':'LiberationSans-Bold.ttf',
+      'corbeli.ttf':'LiberationSans-Italic.ttf','corbelbi.ttf':'LiberationSans-BoldItalic.ttf',
+      'helvetica.ttf':'LiberationSans-Regular.ttf','helveticabd.ttf':'LiberationSans-Bold.ttf',
+      'verdana.ttf':'DejaVuSans.ttf','verdanab.ttf':'DejaVuSans-Bold.ttf',
+      'verdanai.ttf':'DejaVuSans-Oblique.ttf','verdanaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      'tahoma.ttf':'DejaVuSans.ttf','tahomabd.ttf':'DejaVuSans-Bold.ttf',
+      'times.ttf':'DejaVuSans.ttf','timesbd.ttf':'DejaVuSans-Bold.ttf',
+      'timesi.ttf':'DejaVuSans-Oblique.ttf','timesbi.ttf':'DejaVuSans-BoldOblique.ttf',
+      'cambria.ttc':'DejaVuSans.ttf','cambriab.ttf':'DejaVuSans-Bold.ttf',
+      'cambriai.ttf':'DejaVuSans-Oblique.ttf','cambriaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      'georgia.ttf':'DejaVuSans.ttf','georgiab.ttf':'DejaVuSans-Bold.ttf',
+      'georgiai.ttf':'DejaVuSans-Oblique.ttf','georgiaz.ttf':'DejaVuSans-BoldOblique.ttf',
+      'cour.ttf':'DejaVuSansMono.ttf','courbd.ttf':'DejaVuSansMono-Bold.ttf',
+      'couri.ttf':'DejaVuSansMono-Oblique.ttf','courbi.ttf':'DejaVuSansMono-BoldOblique.ttf',
+      'consolab.ttf':'DejaVuSansMono-Bold.ttf','consolai.ttf':'DejaVuSansMono-Oblique.ttf',
+      'consolaz.ttf':'DejaVuSansMono-BoldOblique.ttf','comic.ttf':'ComicNeue-Regular.ttf',
+      'comicbd.ttf':'ComicNeue-Bold.ttf','comici.ttf':'ComicNeue-Italic.ttf',
+      'comicz.ttf':'ComicNeue-BoldItalic.ttf','msyh.ttc':'NotoSansSC-VF.ttf',
+      'msyhbd.ttc':'NotoSansSC-VF.ttf','msyhl.ttc':'NotoSansSC-VF.ttf',
+      'simsun.ttc':'NotoSansSC-VF.ttf','simhei.ttf':'NotoSansSC-VF.ttf',
+      'msjh.ttc':'NotoSansTC-VF.ttf','msjhbd.ttc':'NotoSansTC-VF.ttf',
+      'msmincho.ttc':'NotoSansJP-VF.ttf','msgothic.ttc':'NotoSansJP-VF.ttf',
+      'malgun.ttf':'NotoSansKR-VF.ttf','symbol.ttf':'DejaVuSans.ttf',
+      'wingding.ttf':'DejaVuSans.ttf','wingdng2.ttf':'DejaVuSans.ttf',
+      'wingdng3.ttf':'DejaVuSans.ttf','webdings.ttf':'DejaVuSans.ttf',
       'marlett.ttf':'DejaVuSans.ttf',
     };
     var origOpen = window.XMLHttpRequest.prototype.open;
@@ -139,337 +120,38 @@ function onlyofficeDesktopMock(): Plugin {
     };
   })();
 
-  // Suppress "Connection is lost" dialog — polls until Common.UI.warning is available.
-  (function suppressDialog() {
+  // Suppress "Connection is lost" dialog — expected in offline Web Mode (no real server).
+  (function suppressConnectionLost() {
     var ui = window.Common && window.Common.UI;
     if (!ui || typeof ui.warning !== 'function' || ui.__dlgSuppressed) {
-      setTimeout(suppressDialog, 200);
+      setTimeout(suppressConnectionLost, 200);
       return;
     }
     ui.__dlgSuppressed = true;
-    var orig = ui.warning.bind(ui);
+    var origWarning = ui.warning.bind(ui);
     ui.warning = function(opts) {
-      if (opts && typeof opts.msg === 'string' && opts.msg.indexOf('Connection is lost') !== -1) return;
-      return orig.apply(ui, arguments);
+      if (opts && typeof opts.msg === 'string') {
+        // Suppress dialogs that are expected in serverless offline mode:
+        // "Connection is lost" and "An error occurred during the work with the document"
+        // (EditingError -25 fires when co-authoring save fails — no real server).
+        if (opts.msg.indexOf('Connection is lost') !== -1) return;
+        if (opts.msg.indexOf('error occurred during the work') !== -1) return;
+      }
+      return origWarning.apply(ui, arguments);
     };
   })();
-
-  // 9.3.0 Desktop startup can reach controller delayed hooks before those
-  // controllers receive mode. Seed offline defaults read on content-ready.
-  (function seedControllerModes() {
-    var de = window.DE;
-    if (!de || typeof de.getController !== 'function') {
-      setTimeout(seedControllerModes, 100);
-      return;
-    }
-    var offlineMode = {
-      canCoAuthoring: false,
-      canViewComments: false,
-      canChat: false,
-      canUseHistory: false,
-      canUseSelectHandTools: false,
-      canBack: false,
-      canBrandingExt: false,
-      canChangeCoAuthoring: false,
-      canCloseEditor: false,
-      canComments: false,
-      canCopy: true,
-      canCreateNew: false,
-      canDeleteComments: false,
-      canDownload: false,
-      canDownloadOrigin: false,
-      canEdit: true,
-      canEditComments: false,
-      canEditStyles: true,
-      canFeatureContentControl: false,
-      canFeatureForms: false,
-      canFillForms: false,
-      canHelp: false,
-      canLicense: false,
-      canLiveView: false,
-      canOpenRecent: false,
-      canPlugins: false,
-      canPreviewPrint: false,
-      canPrint: false,
-      canRename: false,
-      canRequestCreateNew: false,
-      canRequestEditRights: false,
-      canRequestInsertImage: false,
-      canRequestMailMergeRecipients: false,
-      canRequestOpen: false,
-      canRequestReferenceData: false,
-      canRequestReferenceSource: false,
-      canRequestSaveAs: false,
-      canRequestSelectSpreadsheet: false,
-      canRequestSendNotify: false,
-      canRequestSharingSettings: false,
-      canRequestUsers: false,
-      canReview: false,
-      canSaveDocumentToBinary: false,
-      canSaveToFile: false,
-      canSendEmailAddresses: false,
-      canSuggest: false,
-      canSwitchToMobile: false,
-      canUseCommentPermissions: false,
-      canUseReviewPermissions: false,
-      canUseThumbnails: false,
-      canUseViwerNavigation: false,
-      isLightVersion: false,
-      isDisconnected: false,
-      isEdit: true,
-      isReviewOnly: false,
-      isPDFForm: false,
-      isFormCreator: false,
-      user: {
-        anonymous: true,
-        id: 'desktop-mock-user',
-        fullname: 'Anonymous',
-        username: 'Anonymous',
-        guest: true,
-        roles: []
-      }
-    };
-
-    function applyOfflineDefaults(target) {
-      if (!target) return;
-      Object.keys(offlineMode).forEach(function(key) {
-        if (target[key] === undefined) target[key] = offlineMode[key];
-      });
-      if (!target.customization) target.customization = {};
-    }
-
-    var main = de.getController('Main');
-    if (main) {
-      main.appOptions = main.appOptions || {};
-      applyOfflineDefaults(main.appOptions);
-    }
-
-    [
-      'LeftMenu',
-      'Toolbar',
-      'Statusbar',
-      'RightMenu',
-      'DocumentHolder',
-      'Common.Controllers.ReviewChanges',
-      'Common.Controllers.Comments',
-      'Common.Controllers.Plugins',
-      'Navigation'
-    ].forEach(function(name) {
-      var ctrl = de.getController(name);
-      if (ctrl && !ctrl.mode) {
-        ctrl.mode = offlineMode;
-        log(name + ' mode seeded');
-      }
-      if (ctrl && !ctrl.appConfig) {
-        ctrl.appConfig = offlineMode;
-        log(name + ' appConfig seeded');
-      }
-      if (ctrl && !ctrl.appOptions) {
-        ctrl.appOptions = main && main.appOptions ? main.appOptions : offlineMode;
-        log(name + ' appOptions seeded');
-      }
-      ['toolbar', 'statusbar', 'leftMenu', 'rightMenu', 'documentHolder'].forEach(function(prop) {
-        if (ctrl && ctrl[prop] && !ctrl[prop].mode) {
-          ctrl[prop].mode = offlineMode;
-          log(name + '.' + prop + ' mode seeded');
-        }
-        if (ctrl && ctrl[prop] && !ctrl[prop].appConfig) {
-          ctrl[prop].appConfig = offlineMode;
-          log(name + '.' + prop + ' appConfig seeded');
-        }
-      });
-    });
-    var toolbarCtrl = de.getController('Toolbar');
-    if (toolbarCtrl && !toolbarCtrl.__desktopDelayedGuarded && typeof toolbarCtrl.createDelayedElements === 'function') {
-      toolbarCtrl.__desktopDelayedGuarded = true;
-      toolbarCtrl.createDelayedElements = function() {
-        log('Toolbar.createDelayedElements skipped: desktop mock has no full toolbar tree');
-        return this;
-      };
-      log('Toolbar.createDelayedElements guarded');
-    }
-    if (toolbarCtrl && toolbarCtrl.toolbar && !toolbarCtrl.toolbar.__desktopSetExtraGuarded && typeof toolbarCtrl.toolbar.setExtra === 'function') {
-      toolbarCtrl.toolbar.__desktopSetExtraGuarded = true;
-      var setExtra = toolbarCtrl.toolbar.setExtra;
-      toolbarCtrl.toolbar.setExtra = function(pos, html) {
-        if (!this.$layout) {
-          log('Toolbar.setExtra skipped: layout not ready');
-          return;
-        }
-        return setExtra.apply(this, arguments);
-      };
-      log('Toolbar.setExtra guarded');
-    }
-    if (toolbarCtrl && !toolbarCtrl.__desktopSetLanguagesGuarded && typeof toolbarCtrl.setLanguages === 'function') {
-      toolbarCtrl.__desktopSetLanguagesGuarded = true;
-      var ctrlSetLanguages = toolbarCtrl.setLanguages;
-      toolbarCtrl.setLanguages = function() {
-        if (!this.toolbar || !this.toolbar.btnsDocLang) {
-          log('Toolbar.setLanguages skipped: language buttons not rendered');
-          return this;
-        }
-        return ctrlSetLanguages.apply(this, arguments);
-      };
-      log('Toolbar.setLanguages guarded');
-    }
-    if (toolbarCtrl && toolbarCtrl.toolbar && !toolbarCtrl.toolbar.__desktopSetLanguagesGuarded && typeof toolbarCtrl.toolbar.setLanguages === 'function') {
-      toolbarCtrl.toolbar.__desktopSetLanguagesGuarded = true;
-      var viewSetLanguages = toolbarCtrl.toolbar.setLanguages;
-      toolbarCtrl.toolbar.setLanguages = function() {
-        if (!this.btnsDocLang) {
-          log('Toolbar.view.setLanguages skipped: language buttons not rendered');
-          return this;
-        }
-        return viewSetLanguages.apply(this, arguments);
-      };
-      log('Toolbar.view.setLanguages guarded');
-    }
-    var viewTab = de.getController('ViewTab');
-    if (viewTab && !viewTab.view) {
-      viewTab.view = { lockedControls: [] };
-      log('ViewTab view seeded');
-    }
-    var viewport = de.getController('Viewport');
-    if (viewport && viewport.header && viewport.header.options) {
-      if (!viewport.header.options.userName) {
-        viewport.header.options.userName = offlineMode.user.fullname;
-        log('Header userName seeded');
-      }
-      if (!viewport.header.options.currentUserId) {
-        viewport.header.options.currentUserId = offlineMode.user.id;
-        log('Header currentUserId seeded');
-      }
-    }
-    setTimeout(seedControllerModes, 250);
-  })();
-
-  (function patchUiControllerGuards() {
-    var de = window.DE;
-    if (!de || typeof de.getController !== 'function') {
-      setTimeout(patchUiControllerGuards, 100);
-      return;
-    }
-    var viewTab = de.getController('ViewTab');
-    if (viewTab && !viewTab.__desktopReadyGuarded && typeof viewTab.onDocumentReady === 'function') {
-      viewTab.__desktopReadyGuarded = true;
-      var onDocumentReady = viewTab.onDocumentReady;
-      viewTab.onDocumentReady = function() {
-        if (!this.view || !this.view.lockedControls) {
-          log('ViewTab.onDocumentReady skipped: view not ready');
-          return;
-        }
-        return onDocumentReady.apply(this, arguments);
-      };
-      log('ViewTab.onDocumentReady guarded');
-    }
-    var main = de.getController('Main');
-    if (main && !main.__desktopSetLanguagesGuarded && typeof main.setLanguages === 'function') {
-      main.__desktopSetLanguagesGuarded = true;
-      var mainSetLanguages = main.setLanguages;
-      main.setLanguages = function() {
-        try {
-          return mainSetLanguages.apply(this, arguments);
-        } catch(e) {
-          var msg = (e && e.message) || String(e);
-          if (msg.indexOf('btnsDocLang') !== -1) {
-            log('Main.setLanguages skipped: language buttons not rendered');
-            return this;
-          }
-          throw e;
-        }
-      };
-      log('Main.setLanguages guarded');
-    }
-    setTimeout(patchUiControllerGuards, 25);
-  })();
-
-  // Provide theme info so index.html Desktop init doesn't crash on uitheme.
-  window.RendererProcessVariable = {
-    theme: { id: 'default-light', type: 'light' }
-  };
-
-  window.AscDesktopEditor = {
-    execCommand: function(cmd, data) {
-      log('execCommand', cmd, (data || '').slice ? (data || '').slice(0, 120) : '');
-    },
-
-    CreateEditorApi: function(api) {
-      log('CreateEditorApi');
-      window.__desktopApi = api;
-      if (!api || typeof api.asc_registerCallback !== 'function') return;
-
-      // Patch AscCommon.r3.prototype.MOa() to always return true.
-      // The 9.3.0 Desktop sdkjs overrides Shc() — when AscDesktopEditor is present and
-      // MOa() returns false, Shc() ignores the bytes argument and calls LocalStartOpen()
-      // instead of BRj(), creating a circular dependency. With MOa=true, Shc() always
-      // falls through to BRj() (the original server-mode path) which correctly processes
-      // bytes from openDocument(). AscDesktopEditor still stays for CreateEditorApi/etc.
-      try {
-        if (window.AscCommon && window.AscCommon.r3) {
-          window.AscCommon.r3.prototype.MOa = function() { return true; };
-          log('MOa patched → BRj path active');
-        }
-      } catch(e) { log('MOa patch err', e.message || String(e)); }
-
-      api.asc_registerCallback('asc_onCoAuthoringDisconnect', function(){});
-      api.asc_registerCallback('asc_onConnectionStateChanged', function(){});
-
-      var tries = 0;
-      var offlineOpenTimer = setInterval(function() {
-        tries++;
-        try {
-          var hasModel = typeof api.get_ContentCount === 'function' && api.get_ContentCount() > 0;
-          if (hasModel && api.Cvc && api.I0c === false && typeof api.Aqg === 'function') {
-            clearInterval(offlineOpenTimer);
-            log('Aqg offline apply');
-            api.Aqg({ offline: true });
-          } else if (tries > 80 || api.Fia === true) {
-            clearInterval(offlineOpenTimer);
-          }
-        } catch(e) {
-          log('Aqg offline apply err', (e && e.stack) || (e && e.message) || String(e));
-          clearInterval(offlineOpenTimer);
-        }
-      }, 250);
-    },
-
-    SetDocumentName: function(name) { log('SetDocumentName', name); },
-    LocalFileRecents: function() { log('LocalFileRecents'); },
-    onDocumentModifiedChanged: function(modified) {
-      log('onDocumentModifiedChanged', modified);
-    },
-
-    // LocalStartOpen is normally called by the Desktop-mode Shc() override, but with
-    // MOa patched to true, Shc() uses BRj() instead and never calls LocalStartOpen().
-    // Kept as a no-op in case it's called from another code path.
-    LocalStartOpen: function() { log('LocalStartOpen (no-op, MOa=true)'); },
-
-    GetInstallPlugins: function() {
-      // SDK accesses result[0].url and result[1].url unconditionally.
-      return JSON.stringify([
-        { url: '', pluginsData: [] },
-        { url: '', pluginsData: [] }
-      ]);
-    },
-
-    // Required by 9.3.0 Desktop sdkjs scale detection.
-    GetSupportedScaleValues: function() {
-      return [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
-    }
-  };
 })();
 </script>`;
 
   return {
-    name: 'onlyoffice-desktop-mock',
+    name: 'onlyoffice-web-mode-patch',
     configureServer(server) {
-      // Run after the version-rewrite middleware has already stripped the hash prefix.
       server.middlewares.use(async (req, res, next) => {
         if (!req.url || !EDITOR_HTML.test(req.url)) return next();
         const filePath = path.join(__dirname, 'public', req.url.split('?')[0]);
         try {
           const html = await fs.readFile(filePath, 'utf-8');
-          const injected = html.replace('<head>', `<head>\n${MOCK}`);
+          const injected = html.replace('<head>', `<head>\n${PATCH}`);
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
           res.end(injected);
@@ -529,7 +211,7 @@ export default defineConfig({
   root: 'pages',
   base: './',
   publicDir: resolve(__dirname, 'public'),
-  plugins: [onlyofficeVersionRewrite(), onlyofficeDesktopMock(), injectCriticalStyle(), injectGtag()],
+  plugins: [onlyofficeEngineIOHandshake(), onlyofficeWebModePatch(), injectCriticalStyle(), injectGtag()],
   server: {
     fs: {
       // Allow Vite to serve src/ which lives outside the pages/ root

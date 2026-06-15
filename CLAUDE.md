@@ -83,6 +83,28 @@ index.html            # HTML 入口
 - `setReadonlyMode(bool)` / `getReadonlyMode()` — 只读模式
 - `requestSaveDocument(targetExt, options)` — 触发编辑器保存并返回 File，60s 超时
 - `setConverterCallbacks(...)` — 注入转换器（解耦循环依赖）
+- `editorSendCommand(params)` — 内部 helper，优先用 `serviceCommand`（9.3.0），降级 `sendCommand`（7.4.1）
+
+**9.3.0 Breaking Change**：`DocEditor.sendCommand` 已改名为 `serviceCommand`。
+直接调用 `window.editor.sendCommand(...)` 在 9.3.0 会抛 `TypeError`。
+所有调用均通过 `editorSendCommand()` helper 路由，保持双版本兼容。
+
+**9.3.0 Web Mode 权限初始化时序（重要）**：文档加载有隐式前提——
+`onEditorPermissions` 必须在 `onDocumentContentReady` 之前运行，否则各 controller 的 `this.mode` 为 `undefined`，`createDelayedElements()` 崩溃。
+
+正常路径：socket.io 服务器推送 join 事件 → SDK 触发 `asc_onGetEditorPermissions` → `onEditorPermissions` → `_isPermissionsInited=true`。
+
+无服务器的 `onAppReady` 四步流程（`src/lib/onlyoffice-editor.ts`）：
+1. 等 `loadDocument` 运行完（`mainCtrl.document` 有值）
+2. 拦截 `mainCtrl.onEditorPermissions`，永远用 `fakePerms`（防止 SDK 的第二次调用把 `isEdit` 重置为 false）
+3. 等 `_isPermissionsInited=true`，超过 2s 后手动触发
+4. 调用 `api.asc_openDocumentFromBytes(ooxmlBytes)`
+
+详细分析见 [docs/explorations/2026-06-15-web-mode-permissions-debug.md](docs/explorations/2026-06-15-web-mode-permissions-debug.md)。
+
+**文档字节来源**：`onAppReady` 里 `binData` 含分号 → 新建文档，从 `g_sEmpty_ooxml` 取对应扩展名的最小 OOXML ZIP；否则用 `pendingCopy`（打开已有文件时在 `createEditorInstance` 入口处拷贝的原始 `Uint8Array`）。
+
+**已知 open issue**：`vite.config.ts` 的 `onlyofficeWebModePatch` 插件（字体 URL 重写 + `suppressConnectionLost`）实际未能注入到编辑器 iframe，console 显示 `patchFound: false`。"Connection is lost" 和 EditingError -25 对话框抑制逻辑已写但未生效。
 
 ### store/index.ts — 全局状态
 
@@ -344,6 +366,7 @@ docker rm -f oo
 | `CreateTable(rows, cols)` 参数顺序变更     | v8.0   | 搜索项目中对 `CreateTable` 的调用       |
 | `customization.commentAuthorOnly` 参数移除 | v8.x   | 检查 `onlyoffice-editor.ts` 中的 config |
 | `installDeveloperPlugin` shim 移除         | v9.3.1 | 若有插件加载逻辑需更新                  |
+| `DocEditor.sendCommand` → `serviceCommand` | v9.x   | ✅ 已修复：通过 `editorSendCommand()` helper 兼容 |
 
 **3. 功能回归测试（预估 1 天）**
 

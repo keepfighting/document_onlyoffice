@@ -489,6 +489,13 @@ export class X2TConverter {
         };
       }
 
+      // If the binary is already in OOXML ZIP format (magic PK\x03\x04), the SDK serialized
+      // it directly to the target format (Desktop mock Bsf path). Skip X2T and return as-is.
+      const isOoxmlZip = bin.length >= 4 && bin[0] === 0x50 && bin[1] === 0x4b && bin[2] === 0x03 && bin[3] === 0x04;
+      if (isOoxmlZip) {
+        return { fileName: outputFileName, data: bin };
+      }
+
       // For all other file types, use standard conversion
       // Write bin file
       this.x2tModule!.FS.writeFile(`/working/${binFileName}`, bin);
@@ -657,7 +664,8 @@ export class X2TConverter {
         console.log('User cancelled the save operation');
         return;
       }
-      throw error;
+      // SecurityError: no transient user activation (e.g. programmatic call). Fall back to blob download.
+      await this.downloadFile(data, fileName);
     }
   }
 

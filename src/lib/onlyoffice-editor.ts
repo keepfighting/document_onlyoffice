@@ -41,6 +41,17 @@ type EmbeddedSaveRequest = {
 
 let embeddedSaveRequest: EmbeddedSaveRequest | null = null;
 
+// 9.3.0 renamed sendCommand → serviceCommand; try serviceCommand first for forward compat.
+function editorSendCommand(params: { command: string; data: Record<string, any> }): void {
+  const ed = window.editor as any;
+  if (!ed) return;
+  if (typeof ed.serviceCommand === 'function') {
+    ed.serviceCommand(params);
+  } else if (typeof ed.sendCommand === 'function') {
+    ed.sendCommand(params);
+  }
+}
+
 export function getSavedFileMimeType(fileName: string): string {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
   const mimeMap: Record<string, string> = {
@@ -195,14 +206,14 @@ async function handleWriteFile(event: any) {
     const objectUrl = await createObjectURL(blob);
     // Add image URL to media mapping using original file name as key
     media[`media/${fileName}`] = objectUrl;
-    window.editor?.sendCommand({
+    editorSendCommand({
       command: 'asc_setImageUrls',
       data: {
         urls: media,
       },
     });
 
-    window.editor?.sendCommand({
+    editorSendCommand({
       command: 'asc_writeFileCallback',
       data: {
         // Image base64
@@ -215,15 +226,13 @@ async function handleWriteFile(event: any) {
     console.error('Error handling writeFile:', error);
 
     // Notify editor that file processing failed
-    if (window.editor && typeof window.editor.sendCommand === 'function') {
-      window.editor.sendCommand({
-        command: 'asc_writeFileCallback',
-        data: {
-          success: false,
-          error: error.message,
-        },
-      });
-    }
+    editorSendCommand({
+      command: 'asc_writeFileCallback',
+      data: {
+        success: false,
+        error: error.message,
+      },
+    });
 
     if (event.callback && typeof event.callback === 'function') {
       event.callback({
@@ -234,59 +243,60 @@ async function handleWriteFile(event: any) {
   }
 }
 
-async function handleSaveDocument(event: SaveEvent) {
+async function handleSaveDocument(event: any) {
   console.log('Save document event:', event);
 
-  if (event.data && event.data.data) {
-    const { data, option } = event.data;
-    const { fileName } = getDocmentObj() || {};
+  // 9.3.0: api.js dispatches onSaveDocument with event.data = ArrayBuffer (raw DOCY binary).
+  // 7.4.1: api.js dispatched onSave with event.data = { data: { data: Uint8Array }, option: { outputformat } }.
+  let binaryData: Uint8Array;
+  let targetFormat: string;
+  const { fileName } = getDocmentObj() || {};
 
-    // Determine target format from editor's output format
-    let targetFormat = c_oAscFileType2[option.outputformat];
+  if (event.data instanceof ArrayBuffer) {
+    // 9.3.0 path — onSaveDocument fires with raw binary transferred via postMessage
+    binaryData = new Uint8Array(event.data);
+    const ext = (fileName?.split('.').pop() || 'docx').toUpperCase();
+    targetFormat = fileName?.toLowerCase().endsWith('.csv') ? 'CSV' : ext;
+    console.log(`[OO] save 9.3.0 binary ${binaryData.byteLength} bytes → format ${targetFormat}`);
+  } else if (event.data?.data?.data) {
+    // 7.4.1 path — nested object with Uint8Array and outputformat
+    const { data, option } = event.data as SaveEvent['data'] extends infer T ? T : never;
+    binaryData = (data as any).data as Uint8Array;
+    targetFormat = c_oAscFileType2[(option as any).outputformat] || 'DOCX';
+    if (fileName?.toLowerCase().endsWith('.csv')) targetFormat = 'CSV';
+    console.log(`[OO] save 7.4.1 format ${targetFormat}`);
+  } else {
+    console.warn('[OO] handleSaveDocument: unrecognized event format', typeof event.data);
+    return;
+  }
 
-    // Only force CSV format if the original file is CSV
-    // This check ensures XLSX and other file types are not affected
-    // CSV files are converted to XLSX internally, so editor may return XLSX format
-    if (fileName && fileName.toLowerCase().endsWith('.csv')) {
-      targetFormat = 'CSV';
-      console.log('Original file is CSV, forcing save as CSV format');
-    } else {
-      // For non-CSV files (XLSX, DOCX, PPTX, etc.), use the format returned by editor
-      // This ensures XLSX files are saved as XLSX, not CSV
-      console.log(`Saving as ${targetFormat} format (original file: ${fileName})`);
-    }
-
-    if (embeddedSaveRequest) {
-      if (!convertBinToDocumentFn) {
-        throw new Error('Converter callback not set');
-      }
-
-      const request = embeddedSaveRequest;
-      cleanupEmbeddedSaveRequest(request);
-
-      try {
-        const result = await convertBinToDocumentFn(data.data, fileName, request.targetExt || targetFormat);
-        const bytes = toUint8Array(result.data);
-        const file = new File([bytes as BlobPart], result.fileName, { type: getSavedFileMimeType(result.fileName) });
-        resolveEmbeddedSaveRequest(request, file);
-      } catch (error) {
-        rejectEmbeddedSaveRequest(request, error instanceof Error ? error : new Error(String(error)));
-        throw error;
-      }
-    } else if (isEmbedMode()) {
-      console.warn('Local save is disabled in iframe embed mode. Use document:save from the parent page.');
-    } else if (convertBinToDocumentAndDownloadFn) {
-      await convertBinToDocumentAndDownloadFn(data.data, fileName, targetFormat);
-    } else {
+  if (embeddedSaveRequest) {
+    if (!convertBinToDocumentFn) {
       throw new Error('Converter callback not set');
     }
+
+    const request = embeddedSaveRequest;
+    cleanupEmbeddedSaveRequest(request);
+
+    try {
+      const result = await convertBinToDocumentFn(binaryData, fileName, request.targetExt || targetFormat);
+      const bytes = toUint8Array(result.data);
+      const file = new File([bytes as BlobPart], result.fileName, { type: getSavedFileMimeType(result.fileName) });
+      resolveEmbeddedSaveRequest(request, file);
+    } catch (error) {
+      rejectEmbeddedSaveRequest(request, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+  } else if (isEmbedMode()) {
+    console.warn('Local save is disabled in iframe embed mode. Use document:save from the parent page.');
+  } else if (convertBinToDocumentAndDownloadFn) {
+    await convertBinToDocumentAndDownloadFn(binaryData, fileName, targetFormat);
+  } else {
+    throw new Error('Converter callback not set');
   }
 
   // Notify editor that save is complete
-  window.editor?.sendCommand({
-    command: 'asc_onSaveCallback',
-    data: { err_code: 0 },
-  });
+  editorSendCommand({ command: 'asc_onSaveCallback', data: { err_code: 0 } });
 }
 
 async function handleDownloadAs(event: { data?: { url?: string; fileType?: string } }): Promise<void> {
@@ -398,7 +408,6 @@ export function createEditorInstance(config: {
       pendingCopy = new Uint8Array(src.byteLength);
       pendingCopy.set(src);
     }
-    (window as unknown as Record<string, unknown>).__pendingBinary = pendingCopy;
 
     try {
       window.editor = new window.DocsAPI.DocEditor('iframe', {
@@ -436,52 +445,102 @@ export function createEditorInstance(config: {
           },
         },
         events: {
-          onAppReady: () => {
+          onAppReady: async () => {
             if (mediaUrls) {
-              window.editor?.sendCommand({
-                command: 'asc_setImageUrls',
-                data: { urls: mediaUrls },
-              });
+              editorSendCommand({ command: 'asc_setImageUrls', data: { urls: mediaUrls } });
             }
-            const editorAny = window.editor as any;
-            if (typeof editorAny?.openDocument === 'function') {
-              // 9.3.0 Desktop mock path.
-              // g.prototype.nve (DOCY-string path) is undefined in 9.3.0 — removed.
-              // We must trigger one of the two live branches in g.prototype.Aqb:
-              //   PQb=true  → this.ove()  (DOCY binary starting with magic bytes)
-              //   OOa=true  → this.S_f()  (OOXML ZIP, PK magic → AscCommon.cac=true)
-              // Strategy: pass a minimal OOXML docx/xlsx/pptx ZIP → cac()=true → S_f().
-              const iframeEl = document.querySelector('iframe') as HTMLIFrameElement | null;
-              const iwin = iframeEl?.contentWindow as any;
-              const api = iwin?.__desktopApi;
-              console.log('[OO] onAppReady 9.3.0', {
-                hasIframe: !!iframeEl, hasApi: !!api,
-                binDataType: typeof binData, pendingCopyLen: pendingCopy.byteLength,
-              });
-              if (api && typeof api.asc_openDocumentFromBytes === 'function') {
-                if (typeof binData === 'string') {
-                  // New document: binData is a legacy DOCY string from empty_bin.ts.
-                  // Use a minimal OOXML ZIP instead — S_f() handles it correctly in 9.3.0.
-                  const ext = '.' + (fileName.split('.').pop()?.toLowerCase() || 'docx');
-                  const ooxmlB64 = g_sEmpty_ooxml[ext] || g_sEmpty_ooxml['.docx'];
-                  const binaryStr = atob(ooxmlB64);
-                  const ooxmlBytes = new Uint8Array(binaryStr.length);
-                  for (let i = 0; i < binaryStr.length; i++) ooxmlBytes[i] = binaryStr.charCodeAt(i);
-                  console.log('[OO] new doc OOXML ZIP', ext, ooxmlBytes.byteLength, 'bytes, first4=', Array.from(ooxmlBytes.slice(0, 4)));
-                  api.asc_openDocumentFromBytes(ooxmlBytes);
-                } else if (pendingCopy.byteLength > 0) {
-                  api.asc_openDocumentFromBytes(pendingCopy);
+            // Web Mode 9.3.0: access the SDK api object directly via same-origin iframe.
+            const iframeEl = document.querySelector('iframe') as HTMLIFrameElement | null;
+            const iwin = iframeEl?.contentWindow as any;
+            const api = iwin?.Asc?.editor;
+            console.log('[OO] onAppReady', { hasIframe: !!iframeEl, hasApi: !!api });
+            if (typeof api?.asc_openDocumentFromBytes !== 'function') {
+              // 7.4.1 fallback
+              editorSendCommand({ command: 'asc_openDocument', data: { buf: binData } });
+              return;
+            }
+
+            const mainCtrl = iwin?.DE?.getController?.('Main');
+            if (!mainCtrl) return;
+
+            // STEP 1: Wait for loadDocument to run (sets mainCtrl.document, registers
+            // asc_onGetEditorPermissions callback, calls asc_setDocInfo + asc_getEditorPermissions).
+            // api.js sends 'init' + 'opendocument' postMessages in the same turn as our callback,
+            // so the iframe hasn't processed them yet. Poll until both are done.
+            let waited = 0;
+            while ((!mainCtrl.appOptions?.user || !mainCtrl.document) && waited < 3000) {
+              await new Promise((r) => setTimeout(r, 50));
+              waited += 50;
+            }
+            console.log('[OO] loadDocument ready after', waited, 'ms');
+
+            // STEP 2: Intercept onEditorPermissions so ANY call (from SDK license check or
+            // manually) always uses fakePerms. The SDK fires asc_onGetEditorPermissions after
+            // asc_getEditorPermissions() which requires server license verification. Without
+            // a real server the response may set isEdit=false. This patch ensures isEdit=true.
+            const versionStr =
+              iwin?.DE?.getController?.('LeftMenu')
+                ?.leftMenu?.getMenu?.('about')
+                ?.txtVersionNum?.match(/^(\d+\.\d+\.\d+)/)?.[1] ?? '9.3.0';
+            const fakePerms = {
+              asc_getLicenseType: () => 3,          // c_oLicenseResult.Success
+              asc_getBuildVersion: () => versionStr,
+              asc_getRights: () => 1,               // c_oRights.Edit
+              asc_getIsAnalyticsEnable: () => false,
+              asc_getIsLight: () => false,
+              asc_getLicenseMode: () => 0,
+              asc_getIsBeta: () => false,
+              asc_getCanBranding: () => false,
+              asc_getCustomization: () => false,
+              asc_getLiveViewerSupport: () => false,
+            };
+            if (!mainCtrl._isPermissionsInited && typeof mainCtrl.onEditorPermissions === 'function') {
+              const origPerms = mainCtrl.onEditorPermissions.bind(mainCtrl);
+              mainCtrl.onEditorPermissions = (_perms: any) => {
+                // Always substitute fakePerms — ignore whatever the license server returns
+                try {
+                  return origPerms(fakePerms);
+                } catch (e) {
+                  console.warn('[OO] onEditorPermissions(fakePerms) failed', e);
                 }
-              } else {
-                console.warn('[OO] __desktopApi unavailable, openDocument binary fallback');
-                if (pendingCopy.byteLength > 0) editorAny.openDocument(pendingCopy);
+              };
+            }
+
+            // STEP 3: Wait for SDK to fire asc_onGetEditorPermissions (sets _isPermissionsInited).
+            // The SDK fires this after asc_getEditorPermissions() completes — which requires
+            // a socket.io response from the server. With our noop server it may never fire,
+            // so after 2s we manually trigger it to unblock document loading.
+            waited = 0;
+            while (!mainCtrl._isPermissionsInited && waited < 2000) {
+              await new Promise((r) => setTimeout(r, 100));
+              waited += 100;
+            }
+            if (!mainCtrl._isPermissionsInited) {
+              console.log('[OO] SDK did not fire permissions after 2s, calling manually');
+              try {
+                mainCtrl.onEditorPermissions(fakePerms);
+              } catch (e) {
+                console.warn('[OO] manual onEditorPermissions failed', e);
               }
+            }
+            console.log('[OO] permissions ready: isEdit=', mainCtrl.appOptions?.isEdit, 'inited=', mainCtrl._isPermissionsInited);
+
+            // STEP 4: Inject document bytes.
+            let ooxmlBytes: Uint8Array;
+            if (typeof binData === 'string' && binData.includes(';')) {
+              // New document — convert base64 empty template to bytes.
+              const ext = '.' + (fileName.split('.').pop()?.toLowerCase() || 'docx');
+              const ooxmlB64 = g_sEmpty_ooxml[ext] || g_sEmpty_ooxml['.docx'];
+              const binaryStr = atob(ooxmlB64);
+              ooxmlBytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) ooxmlBytes[i] = binaryStr.charCodeAt(i);
+              console.log('[OO] new doc', ext, ooxmlBytes.byteLength, 'bytes');
             } else {
-              // 7.4.1 server mode
-              window.editor?.sendCommand({
-                command: 'asc_openDocument',
-                data: { buf: binData },
-              });
+              ooxmlBytes = pendingCopy;
+            }
+            if (ooxmlBytes.byteLength > 0) {
+              console.log('[OO] asc_openDocumentFromBytes', ooxmlBytes.byteLength, 'bytes');
+              api.asc_openDocumentFromBytes(ooxmlBytes);
             }
           },
           onDocumentReady: () => {
@@ -489,7 +548,8 @@ export function createEditorInstance(config: {
             // Note: For CSV files, the save dialog may show XLSX format,
             // but the actual save will be forced to CSV format in handleSaveDocument
           },
-          onSave: handleSaveDocument,
+          // 9.3.0: api.js maps this event to canSaveDocumentToBinary flag, name changed from 7.4.1 onSave
+          onSaveDocument: handleSaveDocument,
           onDownloadAs: handleDownloadAs,
           // writeFile
           // TODO: writeFile - handle when pasting images from external sources
@@ -505,12 +565,12 @@ export function createEditorInstance(config: {
 
 export function setReadonlyMode(readonly: boolean): void {
   isReadonlyMode = readonly;
-  window.editor?.sendCommand({
+  editorSendCommand({
     command: 'processRightsChange',
     data: {
       enabled: !readonly,
       message: readonly ? 'Readonly mode' : '',
-    } as any,
+    },
   });
 }
 

@@ -47,7 +47,11 @@ interface DocEditorConfig {
   events: {
     onAppReady: () => void;
     onDocumentReady: () => void;
-    onSave: (event: SaveEvent) => void;
+    /** 9.3.0+ event name — api.js sets canSaveDocumentToBinary=true when this is present.
+     *  event.data = ArrayBuffer (raw DOCY binary transferred via postMessage). */
+    onSaveDocument?: (event: { target: DocEditor; data: ArrayBuffer }) => void;
+    /** 7.4.1 legacy event name — kept for reference, no longer dispatched by 9.3.0 api.js. */
+    onSave?: (event: SaveEvent) => void;
     onDownloadAs?: (event: DownloadAsEvent) => void;
     writeFile: (event: WriteFileEvent) => void;
     /** Handle external messages from plugins */
@@ -85,7 +89,10 @@ interface DownloadAsEvent {
 }
 
 interface DocEditor {
-  sendCommand: (params: {
+  /** 9.3.0+ replacement for sendCommand */
+  serviceCommand?: (params: { command: string; data: Record<string, any> }) => void;
+  /** 7.4.1 legacy — removed in 9.3.0; use editorSendCommand() helper which falls back */
+  sendCommand?: (params: {
     command: string;
     data: {
       err_code?: number;

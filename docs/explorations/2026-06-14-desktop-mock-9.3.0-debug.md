@@ -2,7 +2,7 @@
 
 **日期：** 2026-06-14
 **分支：** `explore/path-d-desktop-mock`（基于 `upgrade/onlyoffice-9.3.0`）
-**状态：** 🟡 进行中 — Word 新建文档已渲染，9.3 Desktop UI 外壳仍有错误
+**状态：** 🔴 已放弃 — Desktop Mock 方案证明无法完整渲染工具栏，2026-06-15 转向 Web Mode 方案。见 [path-reflection-and-web-mode-plan.md](2026-06-15-path-reflection-and-web-mode-plan.md)
 
 ---
 
@@ -496,6 +496,74 @@ Failed to load module script: Expected a JavaScript-or-Wasm module script but th
 5. **并行工程修复：** 单独整理 `tsconfig` / `vitest` / SEO 测试路径，恢复 `pnpm run tsc && pnpm run test` 可作为升级分支护栏
 
 ---
+
+## 第七轮：静态代码分析发现保存链路完全断裂（2026-06-15）
+
+### 根因：`onSave` → `onSaveDocument` 事件名变更 + 数据格式变更
+
+通过静态分析 `public/web-apps/apps/api/documents/api.js` 和 `public/web-apps/apps/documenteditor/main/app.js`，确认了 9.3.0 保存链路的完整变更：
+
+#### 证据链
+
+**api.js:408**
+```javascript
+_config.editorConfig.canSaveDocumentToBinary = _config.events && !!_config.events.onSaveDocument;
+```
+→ `onSave` 不在此判断中，传 `onSave` 导致 `canSaveDocumentToBinary = false`。
+
+**app.js:1772392**
+```javascript
+t.appOptions.canSaveDocumentToBinary && 
+  t.api.asc_registerCallback("asc_onSaveDocument", _.bind(t.onSaveDocumentBinary, t))
+```
+→ `canSaveDocumentToBinary=false` 时，`asc_onSaveDocument` SDK 回调**永远不注册**，保存事件链断裂。
+
+**app.js:1808384**
+```javascript
+onSaveDocumentBinary: function(t) { Common.Gateway.saveDocument(t) }
+```
+**app.js gateway（143842）**
+```javascript
+saveDocument: function(t) { t && n({event:"onSaveDocument", data:t.buffer}, t.buffer) }
+```
+→ postMessage 发出 `{event:"onSaveDocument", data:ArrayBuffer}`（ArrayBuffer 通过 transfer 传递）。
+
+**api.js:455-477（消息路由）**
+```javascript
+handler = events[msg.event],  // msg.event = "onSaveDocument"
+handler.call(_self, {target: _self, data: msg.data});  // msg.data = ArrayBuffer
+```
+
+#### 与 7.4.1 的对比
+
+| 项目 | 7.4.1 | 9.3.0 |
+|------|-------|-------|
+| 事件名 | `onSave` | `onSaveDocument` |
+| `canSaveDocumentToBinary` 依赖 | 不存在此标志 | `!!events.onSaveDocument` |
+| `event.data` 结构 | `{ data: { data: Uint8Array }, option: { outputformat: number } }` | `ArrayBuffer`（直接二进制，transfer） |
+| SDK 内部回调 | 不明 | `asc_onSaveDocument` |
+
+#### 已修复（2026-06-15）
+
+**`src/lib/onlyoffice-editor.ts`**：
+1. `onSave: handleSaveDocument` → `onSaveDocument: handleSaveDocument`（事件名修正）
+2. `handleSaveDocument` 新增双路解析：
+   - 9.3.0 路径：`event.data instanceof ArrayBuffer` → `new Uint8Array(event.data)`，targetFormat 从 fileName 推导
+   - 7.4.1 路径：`event.data?.data?.data` 存在 → 保留原有嵌套结构 + `c_oAscFileType2[option.outputformat]`
+
+**`src/types/editor.d.ts`**：
+- `onSaveDocument?` 新增，类型 `(event: { target: DocEditor; data: ArrayBuffer }) => void`
+- `onSave?` 保留为 legacy 注释
+
+**`vite.config.ts`**：
+- `offlineMode.canSaveDocumentToBinary: false` → `true`（当 Main.appOptions 未初始化时正确填充默认值）
+
+#### 待验证
+
+- [ ] 浏览器打开 New Word，Ctrl+S，console 出现 `[OO] save 9.3.0 binary ... bytes → format DOCX`
+- [ ] 文档成功下载为 .docx（x2t 转换正常）
+- [ ] New Excel（.xlsx）、New PowerPoint（.pptx）保存路径相同逻辑，验证一致
+- [ ] `sendCommand({command:'asc_onSaveCallback',...})` 在 9.3.0 是否需要？如果 editor 在保存后出现错误提示，说明需要特殊处理
 
 ## 第五轮验证：Chrome DevTools 接入后的新结论
 
