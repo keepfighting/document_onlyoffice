@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const createEditorMock = (destroyEditor = vi.fn()): NonNullable<Window['editor']> => ({
+  sendCommand: vi.fn(),
+  destroyEditor,
+});
+
 describe('editor-session', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -31,7 +36,7 @@ describe('editor-session', () => {
     const destroyEditor = vi.fn();
     const showWorkbench = vi.fn();
 
-    window.editor = { destroyEditor };
+    window.editor = createEditorMock(destroyEditor);
     initEditorSession({
       hideWorkbench: vi.fn(),
       showWorkbench,
@@ -53,7 +58,7 @@ describe('editor-session', () => {
       await import('../../src/lib/editor-session');
     const showWorkbench = vi.fn();
 
-    window.editor = { destroyEditor: vi.fn() };
+    window.editor = createEditorMock();
     initEditorSession({
       hideWorkbench: vi.fn(),
       showWorkbench,
