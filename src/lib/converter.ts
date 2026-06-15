@@ -76,10 +76,6 @@ export async function handleDocumentOperation(options: {
     } else {
       // Opening existing document requires conversion
       if (!file) throw new Error(t('invalidFileObject'));
-      // Store original file bytes for asc_nativeOpenFile in Desktop mode mock.
-      // asc_nativeOpenFile accepts OOXML (docx/xlsx/pptx) directly without x2t.
-      const origBuf = await file.arrayBuffer();
-      (window as unknown as Record<string, unknown>).__pendingOriginalFile = new Uint8Array(origBuf);
       // @ts-expect-error convertDocument handles the file type conversion
       documentData = await convertDocument(file);
     }

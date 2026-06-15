@@ -4,7 +4,7 @@ vi.mock('ranui/message', () => ({}));
 vi.mock('ranuts/utils', () => ({
   createObjectURL: vi.fn().mockResolvedValue('blob:mock'),
 }));
-vi.mock('../../store', () => ({
+vi.mock('../../src/store', () => ({
   getDocmentObj: vi.fn().mockReturnValue({ fileName: 'test.xlsx', file: undefined }),
 }));
 vi.mock('../../src/lib/i18n', () => ({
@@ -15,6 +15,7 @@ vi.mock('../../src/lib/file-types', () => ({ c_oAscFileType2: { 65: 'XLSX', 43: 
 vi.mock('../../src/lib/document-utils', () => ({ getMimeTypeFromExtension: vi.fn().mockReturnValue('image/png') }));
 
 import {
+  createEditorInstance,
   getNormalizedFile,
   getReadonlyMode,
   getSavedFileMimeType,
@@ -32,10 +33,15 @@ describe('onlyoffice-editor', () => {
   beforeEach(() => {
     setReadonlyMode(false);
     delete (window as any).editor;
+    delete (window as any).DocsAPI;
+    delete (window as any).__pendingBinary;
   });
 
   afterEach(() => {
     delete (window as any).editor;
+    delete (window as any).DocsAPI;
+    delete (window as any).__pendingBinary;
+    vi.useRealTimers();
   });
 
   describe('getReadonlyMode / setReadonlyMode', () => {
@@ -145,6 +151,38 @@ describe('onlyoffice-editor', () => {
           convertAndDownload: vi.fn(),
         }),
       ).not.toThrow();
+    });
+  });
+
+  describe('createEditorInstance', () => {
+    it('passes DOCY template strings through to asc_openDocument for OnlyOffice 7', async () => {
+      vi.useFakeTimers();
+      document.body.innerHTML = '<div id="iframe"><span>old editor</span></div>';
+
+      let editorConfig: any;
+      const sendCommand = vi.fn();
+      (window as any).DocsAPI = {
+        DocEditor: vi.fn(function (_elementId: string, config: any) {
+          editorConfig = config;
+          return { sendCommand, destroyEditor: vi.fn() };
+        }),
+      };
+
+      const binData = 'DOCY;v5;example';
+      const promise = createEditorInstance({
+        fileName: 'New_Document.docx',
+        fileType: 'docx',
+        binData,
+      });
+
+      await vi.advanceTimersByTimeAsync(150);
+      await promise;
+      editorConfig.events.onAppReady();
+
+      expect(sendCommand).toHaveBeenCalledWith({
+        command: 'asc_openDocument',
+        data: { buf: binData },
+      });
     });
   });
 

@@ -374,23 +374,6 @@ export function createEditorInstance(config: {
     const editorLang = getOnlyOfficeLang();
     console.log('Creating new editor instance for:', fileName, 'type:', fileType);
 
-    // Store binary in a window-level slot so the iframe mock can access it
-    // via window.parent.__pendingBinary in LocalStartOpen.
-    let pendingCopy: Uint8Array;
-    {
-      let src: Uint8Array;
-      if (binData instanceof Uint8Array) {
-        src = binData;
-      } else if (binData instanceof ArrayBuffer) {
-        src = new Uint8Array(binData);
-      } else {
-        src = new Uint8Array(0);
-      }
-      pendingCopy = new Uint8Array(src.byteLength);
-      pendingCopy.set(src);
-    }
-    (window as unknown as Record<string, unknown>).__pendingBinary = pendingCopy;
-
     try {
       window.editor = new window.DocsAPI.DocEditor('iframe', {
         document: {
@@ -431,7 +414,8 @@ export function createEditorInstance(config: {
             }
             window.editor?.sendCommand({
               command: 'asc_openDocument',
-              data: { buf: pendingCopy.buffer as ArrayBuffer },
+              // @ts-expect-error binData type is handled by the editor
+              data: { buf: binData },
             });
           },
           onDocumentReady: () => {
