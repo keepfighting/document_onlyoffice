@@ -2,6 +2,7 @@ import { localStorageGetItem, localStorageSetItem } from 'ranuts/utils';
 import { LanguageCode, getLanguage, t } from './i18n';
 import { showLoading } from './loading';
 import { onCreateNew, onOpenDocument } from './document';
+import { closeEditorSession, isEditorSessionOpen } from './editor-session';
 
 type LandingPage = {
   eyebrow: string;
@@ -471,7 +472,7 @@ const createInsSlot = (id: string): HTMLElement => {
   return wrap;
 };
 
-// Hide control panel and show top floating bar
+// Hide control panel and enter editor mode.
 export const hideControlPanel = (): void => {
   const container = document.querySelector('#control-panel-container') as HTMLElement;
   const fabContainer = document.querySelector('#fab-container') as HTMLElement;
@@ -491,13 +492,11 @@ export const hideControlPanel = (): void => {
     }, 300);
   }
 
-  // Mark editor as active (CSS uses this to show editor-ad-strip)
+  // Mark editor as active without adding overlays that block the document surface.
   document.body.classList.add('editor-open');
   const strip = document.getElementById('editor-ad-strip');
   if (strip) {
-    strip.style.display = 'flex';
-    const ins = strip.querySelector('ins.adsbygoogle') as HTMLElement | null;
-    if (ins && !ins.dataset.pushed) pushAdSlot(ins);
+    strip.style.display = 'none';
   }
   const landingNav = document.getElementById('landing-nav');
   if (landingNav) landingNav.style.display = 'none';
@@ -615,6 +614,16 @@ export const createFixedActionButton = (): HTMLElement => {
       await onCreateNew('.pptx');
     }),
   );
+  const backToWorkbenchItem = createMenuButton(
+    t('backToWorkbench'),
+    () => {
+      closeEditorSession();
+    },
+    false,
+  );
+  backToWorkbenchItem.id = 'back-to-workbench-menu-item';
+  backToWorkbenchItem.style.display = 'none';
+  menuPanel.appendChild(backToWorkbenchItem);
 
   let isMenuOpen = false;
   let hideMenuTimeout: NodeJS.Timeout;
@@ -622,6 +631,7 @@ export const createFixedActionButton = (): HTMLElement => {
   const showMenu = () => {
     clearTimeout(hideMenuTimeout);
     isMenuOpen = true;
+    backToWorkbenchItem.style.display = isEditorSessionOpen() || Boolean(window.editor) ? 'block' : 'none';
     menuPanel.style.display = 'flex';
     menuPanel.style.pointerEvents = 'auto';
     setTimeout(() => {

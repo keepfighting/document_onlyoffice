@@ -1,7 +1,7 @@
-import { getAllQueryString } from 'ranuts/utils';
+import { initAppRouter } from './lib/app-router';
 import { initEmbedApi } from './lib/embed-api';
 import { initEvents, setEventUICallbacks } from './lib/events';
-import { onCreateNew, openDocumentFromUrl, setUICallbacks } from './lib/document';
+import { onCreateNew, setUICallbacks } from './lib/document';
 import {
   createControlPanel,
   createFixedActionButton,
@@ -28,6 +28,11 @@ declare global {
 // Initialize events
 initEvents();
 initEmbedApi();
+initAppRouter({
+  hideWorkbench: hideControlPanel,
+  showWorkbench: showControlPanel,
+  showMenuGuide,
+});
 
 // Set up UI callbacks to avoid circular dependency
 setUICallbacks({
@@ -53,28 +58,6 @@ window.showControlPanel = showControlPanel;
 createLandingNav();
 createFixedActionButton();
 createControlPanel();
-
-// Check for file or src parameter in URL
-// Both parameters support opening document from URL
-// Priority: file > src (for backward compatibility)
-// Examples:
-//   ?file=https://example.com/doc.docx
-//   ?src=https://example.com/doc.docx
-//   ?file=doc1.docx&src=doc2.xlsx (will use file: doc1.docx)
-const { file, src } = getAllQueryString();
-const documentUrl = file || src;
-if (documentUrl) {
-  // Decode URL if it's encoded
-  try {
-    const decodedUrl = decodeURIComponent(documentUrl);
-    // Open document from URL
-    openDocumentFromUrl(decodedUrl);
-  } catch (error) {
-    // If decoding fails, try using original URL
-    console.warn('Failed to decode URL, using original:', error);
-    openDocumentFromUrl(documentUrl);
-  }
-}
 
 // Register Service Worker for PWA
 if ('serviceWorker' in navigator) {

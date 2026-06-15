@@ -1,12 +1,9 @@
 import { createObjectURL } from 'ranuts/utils';
 import { getDocmentObj, setDocmentObj } from '../store';
 import { handleDocumentOperation, initX2T, loadEditorApi, loadScript } from './converter';
+import { beginEditorOpening, commitEditorOpen, failEditorOpen } from './editor-session';
 import { showLoading } from './loading';
 
-// Import UI functions with type-only to avoid circular dependency
-// These will be passed as callbacks or called after document operations
-let hideControlPanelFn: (() => void) | null = null;
-let showControlPanelFn: (() => void) | null = null;
 let showMenuGuideFn: (() => void) | null = null;
 
 export function setUICallbacks(callbacks: {
@@ -14,10 +11,16 @@ export function setUICallbacks(callbacks: {
   showControlPanel: () => void;
   showMenuGuide: () => void;
 }): void {
-  hideControlPanelFn = callbacks.hideControlPanel;
-  showControlPanelFn = callbacks.showControlPanel;
   showMenuGuideFn = callbacks.showMenuGuide;
 }
+
+const showMenuGuideLater = (): void => {
+  if (showMenuGuideFn) {
+    setTimeout(() => {
+      showMenuGuideFn!();
+    }, 1000);
+  }
+};
 
 // Create a single file input element
 const fileInput = document.createElement('input');
@@ -31,9 +34,7 @@ export const onCreateNew = async (ext: string): Promise<void> => {
   // This function should not show loading again to avoid double loading indicators
   try {
     // Always hide control panel and ensure FAB is visible when creating new document
-    if (hideControlPanelFn) {
-      hideControlPanelFn();
-    }
+    beginEditorOpening();
     setDocmentObj({
       fileName: 'New_Document' + ext,
       file: undefined,
@@ -43,18 +44,12 @@ export const onCreateNew = async (ext: string): Promise<void> => {
     await initX2T();
     const { fileName, file: fileBlob } = getDocmentObj();
     await handleDocumentOperation({ file: fileBlob, fileName, isNew: !fileBlob });
+    commitEditorOpen();
     // Show menu guide after document is loaded
-    if (showMenuGuideFn) {
-      setTimeout(() => {
-        showMenuGuideFn!();
-      }, 1000);
-    }
+    showMenuGuideLater();
   } catch (error) {
     console.error('Error creating new document:', error);
-    // Ensure control panel is shown on error
-    if (showControlPanelFn) {
-      showControlPanelFn();
-    }
+    failEditorOpen(error);
     throw error; // Re-throw to let the menu button handler catch it
   }
 };
@@ -76,9 +71,7 @@ export const onOpenDocument = (): void => {
     if (file) {
       const { removeLoading, setProgress } = showLoading();
       try {
-        if (hideControlPanelFn) {
-          hideControlPanelFn();
-        }
+        beginEditorOpening();
         setDocmentObj({
           fileName: file.name,
           file: file,
@@ -88,21 +81,15 @@ export const onOpenDocument = (): void => {
         setProgress(60, 'Converting document…');
         const { fileName, file: fileBlob } = getDocmentObj();
         await handleDocumentOperation({ file: fileBlob, fileName, isNew: !fileBlob });
+        commitEditorOpen();
         setProgress(90, 'Opening editor…');
         // Clear file selection so the same file can be selected again
         fileInput.value = '';
         // Show menu guide after document is loaded
-        if (showMenuGuideFn) {
-          setTimeout(() => {
-            showMenuGuideFn!();
-          }, 1000);
-        }
+        showMenuGuideLater();
       } catch (error) {
         console.error('Error opening document:', error);
-        // Ensure control panel is shown on error
-        if (showControlPanelFn) {
-          showControlPanelFn();
-        }
+        failEditorOpen(error);
       } finally {
         // Always remove loading, even if there's an error
         removeLoading();
@@ -128,9 +115,7 @@ export const openDocumentFromUrl = async (
 ): Promise<void> => {
   const { removeLoading, setProgress } = showLoading();
   try {
-    if (hideControlPanelFn) {
-      hideControlPanelFn();
-    }
+    beginEditorOpening();
 
     // Fetch the file from URL
     console.log('Fetching document from URL:', url);
@@ -176,6 +161,7 @@ export const openDocumentFromUrl = async (
       fileName: finalFileName,
       file: file,
       url: await createObjectURL(file),
+      readonly: options?.readonly,
     });
 
     // Initialize and open document
@@ -188,20 +174,47 @@ export const openDocumentFromUrl = async (
       isNew: !fileBlob,
       readonly: options?.readonly,
     });
+    commitEditorOpen();
     setProgress(90, 'Opening editor…');
 
     // Show menu guide after document is loaded
-    if (showMenuGuideFn) {
-      setTimeout(() => {
-        showMenuGuideFn!();
-      }, 1000);
-    }
+    showMenuGuideLater();
   } catch (error) {
     console.error('Error opening document from URL:', error);
     alert(`Failed to open document: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    if (showControlPanelFn) {
-      showControlPanelFn();
-    }
+    failEditorOpen(error);
+  } finally {
+    removeLoading();
+  }
+};
+
+export const restoreCurrentDocumentSession = async (): Promise<void> => {
+  const { fileName, file: fileBlob, readonly } = getDocmentObj();
+
+  if (!fileName) {
+    failEditorOpen(new Error('No document is available to restore'));
+    return;
+  }
+
+  const { removeLoading, setProgress } = showLoading();
+  try {
+    beginEditorOpening();
+    await loadScript();
+    await loadEditorApi();
+    await initX2T();
+    setProgress(60, 'Restoring document…');
+    await handleDocumentOperation({
+      file: fileBlob,
+      fileName,
+      isNew: !fileBlob,
+      readonly,
+    });
+    commitEditorOpen();
+    setProgress(90, 'Opening editor…');
+    showMenuGuideLater();
+  } catch (error) {
+    console.error('Error restoring document session:', error);
+    failEditorOpen(error);
   } finally {
     removeLoading();
   }

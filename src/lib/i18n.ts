@@ -35,6 +35,7 @@ export interface I18nMessages {
   newWord: string;
   newExcel: string;
   newPowerPoint: string;
+  backToWorkbench: string;
   menu: string;
   menuGuide: string;
 
@@ -74,6 +75,7 @@ const messages: Record<Language, I18nMessages> = {
     newWord: '新建 Word',
     newExcel: '新建 Excel',
     newPowerPoint: '新建 PowerPoint',
+    backToWorkbench: '返回工作台',
     menu: '菜单',
     menuGuide: '菜单在右下角，悬停即可查看（点击关闭后不再提示）',
     trustNoUpload: '无需上传',
@@ -101,6 +103,7 @@ const messages: Record<Language, I18nMessages> = {
     newWord: 'New Word',
     newExcel: 'New Excel',
     newPowerPoint: 'New PowerPoint',
+    backToWorkbench: 'Back to Workbench',
     menu: 'Menu',
     menuGuide: "Menu is in the bottom right corner, hover to view (click to close, won't show again)",
     trustNoUpload: 'No upload',
